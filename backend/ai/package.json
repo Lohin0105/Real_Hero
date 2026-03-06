@@ -1,0 +1,11 @@
+{
+    "name": "ai",
+    "version": "1.0.0",
+    "description": "Python AI Service for Real Hero Analytics",
+    "scripts": {
+        "dev": ".\\venv\\Scripts\\python.exe main.py",
+        "start": ".\\venv\\Scripts\\python.exe main.py"
+    },
+    "author": "",
+    "license": "ISC"
+}

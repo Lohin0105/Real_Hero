@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: blood-donation-backend
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # IMPORTANT: Add these variables in Render Dashboard > Environment
+      # Do NOT hardcode sensitive values here
+      - key: MONGO_URI
+        sync: false  # Set via Render dashboard
+      - key: EMAIL_FROM
+        sync: false  # Set via Render dashboard
+      - key: SMTP_HOST
+        sync: false  # Set via Render dashboard
+      - key: SMTP_PORT
+        sync: false  # Set via Render dashboard
+      - key: SMTP_USER
+        sync: false  # Set via Render dashboard
+      - key: SMTP_PASS
+        sync: false  # Set via Render dashboard (use SMTP API key)
+      - key: SERVER_BASE
+        sync: false  # Set to your Render service URL, e.g., https://your-app.onrender.com
