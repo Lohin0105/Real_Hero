@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #090909;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #111; }
+::-webkit-scrollbar-thumb { background: #ff2b2b; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #ff4c4c; }
+
+/* ── MUI overrides ── */
+.MuiPaper-root { background-color: rgba(255,255,255,0.04) !important; color: #fff !important; }
+.MuiTypography-root { font-family: 'Poppins', sans-serif !important; }
+.MuiButton-root { font-family: 'Poppins', sans-serif !important; }
+.MuiInputBase-root { font-family: 'Poppins', sans-serif !important; color: #fff !important; }
+.MuiFormLabel-root { font-family: 'Poppins', sans-serif !important; color: rgba(255,255,255,0.5) !important; }
+.MuiOutlinedInput-notchedOutline { border-color: rgba(255,255,255,0.15) !important; }
+.MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline { border-color: rgba(255,43,43,0.5) !important; }
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline { border-color: #ff2b2b !important; }
+.MuiSelect-icon { color: rgba(255,255,255,0.5) !important; }
+.MuiMenu-paper { background: #111 !important; border: 1px solid rgba(255,255,255,0.08) !important; box-shadow: 0px 8px 24px rgba(0,0,0,0.9) !important; }
+.MuiMenuItem-root { font-family: 'Poppins', sans-serif !important; color: #fff !important; background: transparent !important; }
+.MuiMenuItem-root:hover { background: rgba(255,43,43,0.15) !important; }
+.MuiChip-root { font-family: 'Poppins', sans-serif !important; }
+.MuiTooltip-tooltip { font-family: 'Poppins', sans-serif !important; }
+.MuiDialog-paper { background: #111 !important; color: #fff !important; border: 1px solid rgba(255,43,43,0.15) !important; border-radius: 16px !important; }
+.MuiDialogTitle-root { font-family: 'Poppins', sans-serif !important; color: #fff !important; }
+.MuiDialogContent-root { color: rgba(255,255,255,0.7) !important; }
+.MuiDivider-root { border-color: rgba(255,255,255,0.07) !important; }
+.MuiDrawer-paper { background: #0d0d0d !important; border-right: 1px solid rgba(255,43,43,0.1) !important; }
+.MuiListItemText-primary { font-family: 'Poppins', sans-serif !important; color: rgba(255,255,255,0.82) !important; }
+.MuiTabPanel-root { padding: 0 !important; }
+.MuiTab-root { font-family: 'Poppins', sans-serif !important; }
+.MuiSwitch-switchBase.Mui-checked { color: #ff2b2b !important; }
+.MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track { background-color: #ff2b2b !important; }
+.MuiLinearProgress-barColorPrimary { background-color: #ff2b2b !important; }
+.MuiCircularProgress-colorPrimary { color: #ff2b2b !important; }
+
+/* ── Swal dark theme ── */
+.swal2-popup { font-family: 'Poppins', sans-serif !important; background: #111 !important; color: #fff !important; border: 1px solid rgba(255,43,43,0.15) !important; border-radius: 16px !important; }
+.swal2-title { color: #fff !important; }
+.swal2-html-container { color: rgba(255,255,255,0.7) !important; }
+.swal2-confirm { background: linear-gradient(135deg, #ff2b2b, #b60000) !important; font-family: 'Poppins', sans-serif !important; border-radius: 8px !important; font-weight: 700 !important; }
+.swal2-cancel { background: rgba(255,255,255,0.08) !important; color: #fff !important; font-family: 'Poppins', sans-serif !important; border-radius: 8px !important; }
