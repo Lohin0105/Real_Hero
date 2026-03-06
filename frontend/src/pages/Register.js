@@ -49,18 +49,22 @@ export default function Register() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [warmingUp, setWarmingUp] = useState(false);
 
   const update = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setWarmingUp(false);
+    // Show "warming up" hint after 10s so user knows to keep waiting
+    const warmTimer = setTimeout(() => setWarmingUp(true), 10000);
     try {
       const apiBase = process.env.REACT_APP_API_BASE || "http://localhost:5000";
 
-      // 30s timeout to handle Render free-tier cold start
+      // 70s timeout to handle Render free-tier cold start (~50-60s)
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout = setTimeout(() => controller.abort(), 70000);
 
       let res;
       try {
@@ -101,16 +105,19 @@ export default function Register() {
     } catch (err) {
       const isTimeout = err.name === "AbortError";
       Swal.fire({
-        title: isTimeout ? "Server Waking Up… ⏳" : "Connection Error",
+        title: isTimeout ? "Server Still Waking Up ⏳" : "Connection Error",
         text: isTimeout
-          ? "The server took too long (free tier cold start). Please wait 30s and try again."
+          ? "The server is taking longer than usual to start. Please click OK and try again — it should be ready now."
           : `Could not connect. Error: ${err.message}`,
         icon: "warning",
         confirmButtonColor: "#ff2b2b",
         background: "#111",
         color: "#fff",
+        confirmButtonText: "OK, Try Again",
       });
     } finally {
+      clearTimeout(warmTimer);
+      setWarmingUp(false);
       setLoading(false);
     }
   };
@@ -347,7 +354,11 @@ export default function Register() {
               {/* Submit */}
               <motion.div whileHover={{ scale: loading ? 1 : 1.02 }} whileTap={{ scale: loading ? 1 : 0.97 }} style={{ marginTop: 6 }}>
                 <button className="auth-btn-primary" type="submit" disabled={loading}>
-                  {loading ? "Creating account…" : "🩸 Create Free Account"}
+                  {loading
+                    ? warmingUp
+                      ? "⏳ Server warming up… please wait"
+                      : "Creating account…"
+                    : "🩸 Create Free Account"}
                 </button>
               </motion.div>
 
