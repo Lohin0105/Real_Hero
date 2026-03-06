@@ -1,117 +1,77 @@
 // backend/utils/emailNotifier.mjs
-import dotenv from "dotenv";
-dotenv.config();
+// Uses Resend (https://resend.com) - works on all cloud servers including Render free tier
 
-import nodemailer from "nodemailer";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const FROM_EMAIL = process.env.FROM_EMAIL || "onboarding@resend.dev"; // use your verified domain email in prod
+const MOCK_EMAIL = process.env.MOCK_EMAIL === "true";
 
-const FROM_EMAIL = process.env.EMAIL_USER || process.env.EMAIL_FROM || "no-reply@real-hero.local";
-const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.EMAIL_USER || process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.EMAIL_PASS || process.env.SMTP_PASS || "";
-
-if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-  console.error("❌ CRITICAL: SMTP configuration incomplete!");
-  console.error("Missing variables:", {
-    SMTP_HOST: SMTP_HOST ? "✓" : "✗ MISSING",
-    SMTP_USER: SMTP_USER ? "✓" : "✗ MISSING",
-    SMTP_PASS: SMTP_PASS ? "✓" : "✗ MISSING",
-    EMAIL_USER: FROM_EMAIL || "✗ MISSING"
-  });
-  console.error("⚠️  Email functionality will NOT work without these variables!");
-  console.error("📖 See DEPLOYMENT.md for setup instructions.");
-}
-
-let transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: SMTP_PORT,
-  secure: false, // port 587 is not secure
-  auth: {
-    user: SMTP_USER,
-    pass: SMTP_PASS.replace(/\s+/g, ""), // Remove spaces from app password
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-  logger: true,
-  debug: true,
-});
-
-// Verify connection configuration
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('❌ SMTP Connection Error:', error.message);
-    // Don't crash, just log. Email sending will fail gracefully later if attempted.
-  } else {
-    console.log('✅ SMTP Server Ready');
-  }
-});
-
-// Handle transport errors to prevent crash
-transporter.on('error', (err) => {
-  console.error('❌ SMTP Transport Error:', err.message);
-});
-
-// MOCK EMAIL LOGIC
-const MOCK_EMAIL = process.env.MOCK_EMAIL === 'true';
-
-if (MOCK_EMAIL) {
-  console.log("🟠 MOCK EMAIL MODE ENABLED: Emails will be logged to console instead of sent.");
+if (!RESEND_API_KEY && !MOCK_EMAIL) {
+  console.error("❌ CRITICAL: RESEND_API_KEY is missing! Emails will NOT be sent.");
+  console.error("  → Sign up free at https://resend.com and add RESEND_API_KEY to Render env vars.");
+} else if (MOCK_EMAIL) {
+  console.log("🟠 MOCK EMAIL MODE: Emails will be logged to console only.");
 } else {
-  console.log("📧 REAL EMAIL MODE ENABLED: Attempting to send real emails via SMTP.");
+  console.log("📧 RESEND EMAIL MODE: Using Resend API to send emails.");
 }
 
 function normalizeRecipients(to) {
   if (!to) return [];
   if (Array.isArray(to)) return to.map(String).filter(Boolean);
-  return String(to)
-    .split(/[;,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return String(to).split(/[;,]/).map((s) => s.trim()).filter(Boolean);
 }
 
 export async function sendMail({ to, subject, html, text }) {
-  console.log(`[Email Debug] Attempting to send email to: ${to}`);
-  console.log(`[Email Debug] Subject: ${subject}`);
+  console.log(`[Email] Sending to: ${to} | Subject: ${subject}`);
+
   if (MOCK_EMAIL) {
-    console.log("\n-------- 📧 MOCK EMAIL START --------");
+    console.log("\n-------- 📧 MOCK EMAIL --------");
     console.log(`To:      ${to}`);
     console.log(`Subject: ${subject}`);
-    console.log(`Body:    ${text || "(HTML Content)"}`);
-    if (html) console.log("HTML Preview (first 100 chars):", html.substring(0, 100) + "...");
-    console.log("-------- 📧 MOCK EMAIL END ----------\n");
-    return { ok: true, info: { messageId: 'mock-id-' + Date.now() } };
+    console.log(`Body:    ${text || "(HTML)"}`);
+    console.log("--------------------------------\n");
+    return { ok: true, info: { messageId: "mock-" + Date.now() } };
+  }
+
+  if (!RESEND_API_KEY) {
+    console.error("❌ Cannot send email: RESEND_API_KEY not set.");
+    return { ok: false, error: "RESEND_API_KEY not configured" };
   }
 
   try {
     const recipients = normalizeRecipients(to);
     if (recipients.length === 0) {
-      const msg = "sendMail: missing recipient";
-      console.warn(msg);
-      return { ok: false, error: msg };
+      console.warn("sendMail: no recipients");
+      return { ok: false, error: "missing recipient" };
     }
 
-    const info = await transporter.sendMail({
+    const body = {
       from: FROM_EMAIL,
-      to: recipients.join(", "),
-      subject: subject || "(no subject)",
-      html: html || undefined,
-      text: text || (html ? html.replace(/<[^>]+>/g, "") : ""),
-    });
-
-    console.log("📧 Email sent:", {
       to: recipients,
-      messageId: info?.messageId,
-      accepted: info?.accepted,
-      rejected: info?.rejected,
+      subject: subject || "(no subject)",
+      html: html || text || "",
+    };
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     });
 
-    return { ok: true, info };
-  } catch (err) {
-    console.error("❌ sendMail error:", err?.message || err);
-    if (err.responseCode === 502) {
-      console.error("🚨 BREVO ERROR 502: Your account is not activated. Please verify your Brevo/Sendinblue account status.");
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error("❌ Resend error:", res.status, JSON.stringify(data));
+      return { ok: false, error: data };
     }
+
+    console.log("✅ Email sent via Resend:", data.id);
+    return { ok: true, info: { messageId: data.id } };
+
+  } catch (err) {
+    console.error("❌ sendMail exception:", err?.message || err);
     return { ok: false, error: err };
   }
 }
@@ -122,12 +82,8 @@ export async function sendMailToMany({ to, subject, html, text }) {
 
   const results = [];
   for (const r of recipients) {
-    try {
-      const resp = await sendMail({ to: r, subject, html, text });
-      results.push({ to: r, ok: Boolean(resp.ok), info: resp.info, error: resp.error || null });
-    } catch (e) {
-      results.push({ to: r, ok: false, error: e?.message || e });
-    }
+    const resp = await sendMail({ to: r, subject, html, text });
+    results.push({ to: r, ok: Boolean(resp.ok), info: resp.info, error: resp.error || null });
   }
   return { ok: true, results };
 }
