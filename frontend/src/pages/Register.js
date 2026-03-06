@@ -53,42 +53,63 @@ export default function Register() {
   const update = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleRegister = async (e) => {
-
     e.preventDefault();
     setLoading(true);
     try {
-      let apiBase = process.env.REACT_APP_API_BASE || "http://localhost:5000";
-      try {
-        if (typeof window !== "undefined") {
-          const host = window.location.hostname;
-          if (host && !/(^localhost$|^127\.0\.0\.1$)/.test(host) && /localhost|127\.0\.0\.1/.test(apiBase)) {
-            apiBase = apiBase.replace(/localhost|127\.0\.0\.1/, host);
-          }
-        }
-      } catch (_) { }
+      const apiBase = process.env.REACT_APP_API_BASE || "http://localhost:5000";
 
-      const res = await fetch(`${apiBase}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email, password: form.password, name: form.name }),
-      });
+      // 30s timeout to handle Render free-tier cold start
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      let res;
+      try {
+        res = await fetch(`${apiBase}/api/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: form.email, password: form.password, name: form.name }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
       const data = await res.json();
 
       if (res.ok) {
         localStorage.setItem("newUserProfile", JSON.stringify({ email: form.email, name: form.name }));
-        Swal.fire({
-          title: "OTP Sent!",
+        await Swal.fire({
+          title: "OTP Sent! 📧",
           text: "Check your email for the 6-digit verification code.",
           icon: "success",
           confirmButtonColor: "#ff2b2b",
           background: "#111",
           color: "#fff",
-        }).then(() => navigate(`/verify-otp?email=${encodeURIComponent(form.email)}`));
+          confirmButtonText: "Go to Verify →",
+        });
+        navigate(`/verify-otp?email=${encodeURIComponent(form.email)}`);
       } else {
-        Swal.fire("Registration Failed", data.message || "Something went wrong", "error");
+        Swal.fire({
+          title: "Registration Failed",
+          text: data.message || "Something went wrong. Please try again.",
+          icon: "error",
+          confirmButtonColor: "#ff2b2b",
+          background: "#111",
+          color: "#fff",
+        });
       }
-    } catch {
-      Swal.fire("Error", "Could not connect to the authentication server.", "error");
+    } catch (err) {
+      const isTimeout = err.name === "AbortError";
+      Swal.fire({
+        title: isTimeout ? "Server Waking Up… ⏳" : "Connection Error",
+        text: isTimeout
+          ? "The server took too long (free tier cold start). Please wait 30s and try again."
+          : `Could not connect. Error: ${err.message}`,
+        icon: "warning",
+        confirmButtonColor: "#ff2b2b",
+        background: "#111",
+        color: "#fff",
+      });
     } finally {
       setLoading(false);
     }
