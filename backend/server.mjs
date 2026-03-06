@@ -68,23 +68,6 @@ app.use("/api/translate", translateRoutes);
 // root
 app.get("/", (req, res) => res.send("Real-Hero backend running"));
 
-// ─── Test email endpoint (TEMP: for debugging) ───
-app.get("/api/test-email", async (req, res) => {
-  const { sendMail } = await import("./utils/emailNotifier.mjs");
-  const to = req.query.to || "lohinvemulapati@gmail.com";
-  const result = await sendMail({
-    to,
-    subject: "Real-Hero Test Email ✅",
-    html: `<h2>Test email from Real-Hero</h2><p>SendGrid is working! Sent to: ${to}</p>`,
-  });
-  res.json({
-    result, env: {
-      SENDGRID_SET: !!process.env.SENDGRID_API_KEY,
-      FROM_EMAIL: process.env.FROM_EMAIL || "(not set)",
-    }
-  });
-});
-
 
 // Global error handler
 app.use((err, req, res, next) => {
