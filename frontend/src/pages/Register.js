@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Swal from "sweetalert2";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -52,6 +52,14 @@ export default function Register() {
   const [warmingUp, setWarmingUp] = useState(false);
 
   const update = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+
+  // Pre-warm the Render server as soon as the page loads
+  // so it's ready by the time the user fills the form and clicks submit
+  useEffect(() => {
+    const apiBase = process.env.REACT_APP_API_BASE || "http://localhost:5000";
+    fetch(`${apiBase}/`, { method: "GET", signal: AbortSignal.timeout(90000) })
+      .catch(() => { }); // silent — we don't care about errors, just waking the server
+  }, []);
 
   const handleRegister = async (e) => {
     e.preventDefault();
