@@ -49,10 +49,13 @@ export const register = async (req, res) => {
             await User.create(userData);
         }
 
-        // Send OTP email
-        // For new users, default to 'en'. For existing, use preference.
-        const lang = existingUser?.preferredLanguage || 'en';
+        // ✅ Respond to the client IMMEDIATELY — don't wait for email
+        // This prevents frontend timeout on Render free tier where first SMTP
+        // connection can take 30-90 seconds
+        res.status(201).json({ ok: true, message: "OTP sent to email. Please verify." });
 
+        // Send OTP email in the BACKGROUND (non-blocking)
+        const lang = existingUser?.preferredLanguage || 'en';
         const subject = getTranslation(lang, 'authSubjectVerify');
         const bodyTitle = getTranslation(lang, 'authBodyVerify');
         const greeting = getTranslation(lang, 'authGreeting');
@@ -61,7 +64,7 @@ export const register = async (req, res) => {
         const ignoreMsg = getTranslation(lang, 'authIgnore');
         const footer = getTranslation(lang, 'authFooter');
 
-        const emailRes = await sendMail({
+        sendMail({
             to: email,
             subject: subject,
             html: `
@@ -75,14 +78,15 @@ export const register = async (req, res) => {
           <p>${footer}</p>
         </div>
       `
+        }).then(emailRes => {
+            if (!emailRes.ok) {
+                console.error("Failed to send OTP email:", emailRes.error);
+            } else {
+                console.log("OTP email sent to:", email);
+            }
+        }).catch(err => {
+            console.error("OTP email error:", err);
         });
-
-        if (!emailRes.ok) {
-            console.error("Failed to send OTP email:", emailRes.error);
-            return res.status(500).json({ message: "Failed to send OTP email" });
-        }
-
-        res.status(201).json({ ok: true, message: "OTP sent to email. Please verify." });
 
     } catch (error) {
         console.error("Registration error:", error);
