@@ -221,3 +221,113 @@ export const login = async (req, res) => {
         res.status(500).json({ message: "Login failed" });
     }
 };
+
+/**
+ * POST /api/auth/forgot-password-otp
+ * Body: { email }
+ * Sends a 6-digit OTP to the user's email for password reset.
+ */
+export const forgotPasswordOtp = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ message: "Email is required" });
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            // Don't reveal whether the user exists – return generic ok
+            return res.json({ ok: true, message: "If that email is registered, an OTP has been sent." });
+        }
+
+        // Cooldown check (60 seconds)
+        if (user.lastOtpSent && user.lastOtpSent.getTime() + 60 * 1000 > Date.now()) {
+            return res.status(429).json({ message: "Please wait 60 seconds before requesting a new OTP." });
+        }
+
+        const otp = generateOTP();
+        const hashedOtp = await bcrypt.hash(otp, 10);
+
+        user.otp = hashedOtp;
+        user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        user.otpAttempts = 0;
+        user.lastOtpSent = new Date();
+        await user.save();
+
+        // Respond immediately so the UI isn't blocked
+        res.json({ ok: true, message: "If that email is registered, an OTP has been sent." });
+
+        // Send OTP email in the background
+        const lang = user.preferredLanguage || 'en';
+        sendMail({
+            to: email,
+            subject: "Password Reset OTP – Real-Hero",
+            html: `
+<div style="font-family:'Segoe UI',sans-serif;max-width:480px;margin:auto;background:#111;color:#fff;border-radius:12px;padding:32px;border:1px solid rgba(255,43,43,0.2)">
+  <h2 style="color:#ff2b2b;margin:0 0 16px">🔑 Password Reset</h2>
+  <p style="color:rgba(255,255,255,0.7);margin:0 0 8px">Hi ${user.name || 'there'},</p>
+  <p style="color:rgba(255,255,255,0.7);margin:0 0 24px">Use the OTP below to reset your Real-Hero password. It expires in <strong>10 minutes</strong>.</p>
+  <div style="text-align:center;background:rgba(255,43,43,0.1);border:1px solid rgba(255,43,43,0.3);border-radius:10px;padding:20px;letter-spacing:10px;font-size:32px;font-weight:800;color:#fff">${otp}</div>
+  <p style="color:rgba(255,255,255,0.4);font-size:12px;margin:24px 0 0">If you did not request this, please ignore this email.</p>
+</div>`
+        }).then(r => {
+            if (!r.ok) console.error("Failed to send password reset OTP:", r.error);
+            else console.log("Password reset OTP sent to:", email);
+        }).catch(err => console.error("Password reset OTP email error:", err));
+
+    } catch (error) {
+        console.error("forgotPasswordOtp error:", error);
+        res.status(500).json({ message: "Failed to process request", error: error.message });
+    }
+};
+
+/**
+ * POST /api/auth/reset-password-otp
+ * Body: { email, otp, newPassword }
+ * Verifies OTP and sets a new password.
+ */
+export const resetPasswordWithOtp = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({ message: "Email, OTP, and new password are required" });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: "Password must be at least 6 characters" });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (!user.otp || !user.otpExpires) {
+            return res.status(400).json({ message: "No pending OTP. Please request a new one." });
+        }
+
+        if (user.otpExpires < Date.now()) {
+            return res.status(400).json({ message: "OTP expired. Please request a new one." });
+        }
+
+        if (user.otpAttempts >= 5) {
+            return res.status(403).json({ message: "Too many attempts. Please request a new OTP." });
+        }
+
+        const isMatch = await bcrypt.compare(otp, user.otp);
+        if (!isMatch) {
+            user.otpAttempts += 1;
+            await user.save();
+            return res.status(400).json({ message: "Invalid OTP" });
+        }
+
+        // OTP verified — update password
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.otp = undefined;
+        user.otpExpires = undefined;
+        user.otpAttempts = 0;
+        user.lastOtpSent = undefined;
+        await user.save();
+
+        res.json({ ok: true, message: "Password reset successfully" });
+
+    } catch (error) {
+        console.error("resetPasswordWithOtp error:", error);
+        res.status(500).json({ message: "Failed to reset password", error: error.message });
+    }
+};
