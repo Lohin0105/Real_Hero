@@ -15,6 +15,7 @@ import AddIcon from "@mui/icons-material/Add";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
@@ -23,10 +24,18 @@ import { useTranslation } from "react-i18next";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5000";
 
-// Fixed pixel heights — used in both sx props and calc()
-const NAV_H = 64;   // top app navbar
-const BOT_H = 60;   // inner medibot header
-const INPUT_H = 88;   // input bar + disclaimer text
+const NAV_H = 64;
+const BOT_H = 60;
+const INPUT_H = 120;
+
+// ── Image type options ──────────────────────────────────────────────────────
+const IMAGE_TYPES = [
+    { value: "auto", label: "🤖 Auto-detect", color: "#9c7ef7" },
+    { value: "prescription", label: "📋 Prescription", color: "#4fc3f7" },
+    { value: "xray", label: "🫁 X-Ray / Scan", color: "#81c784" },
+    { value: "report", label: "🧪 Lab Report", color: "#ffb74d" },
+    { value: "medicine", label: "💊 Medicine", color: "#f48fb1" },
+];
 
 export default function MediBotPage() {
     const { t } = useTranslation();
@@ -42,12 +51,13 @@ export default function MediBotPage() {
     const [historyOpen, setHistoryOpen] = useState(!window.matchMedia("(max-width:900px)").matches);
     const [input, setInput] = useState("");
     const [imageBase64, setImageBase64] = useState("");
+    const [selectedImageType, setSelectedImageType] = useState("auto");
     const [isLoading, setIsLoading] = useState(false);
+    const [isEnhancing, setIsEnhancing] = useState(false);
     const [fetching, setFetching] = useState(true);
     const endRef = useRef(null);
     const fileRef = useRef(null);
 
-    /* ── language change ─────────────────────────────────────────────── */
     useEffect(() => {
         setMessages(p => {
             const m = [...p];
@@ -59,7 +69,6 @@ export default function MediBotPage() {
     useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
     useEffect(() => { init(); }, []);
 
-    /* ── init ────────────────────────────────────────────────────────── */
     async function init() {
         try {
             const h = authUtils.getAuthHeaders();
@@ -68,11 +77,13 @@ export default function MediBotPage() {
             const sRes = await fetch(`${API_BASE}/api/medibot/sessions`, { credentials: "include", headers: h });
             if (sRes.ok) setSessions(await sRes.json());
         } catch { }
-        setMessages([{ role: "assistant", content: t("mediBotIntro") }]);
+        setMessages([{
+            role: "assistant",
+            content: t("mediBotIntro") || `Hello! I'm **MediBot** 🤖 — your AI Medical Assistant.\n\nI can help you with:\n- 💊 **Medicine identification** — upload a medicine photo\n- 📋 **Prescription analysis** — I'll read every medicine & instruction\n- 🫁 **X-Ray / Scan analysis** — detailed radiology findings\n- 🧪 **Lab report analysis** — values, normal ranges, explanations\n- 🩸 **Blood donation guidance** — eligibility, process, platform help\n\nAttach an image using the 📎 button below, or just ask me anything!`
+        }]);
         setFetching(false);
     }
 
-    /* ── session helpers ─────────────────────────────────────────────── */
     const loadSession = async (id) => {
         setFetching(true);
         try {
@@ -84,44 +95,87 @@ export default function MediBotPage() {
             }
         } catch { } finally { setFetching(false); if (isMobile) setHistoryOpen(false); }
     };
-    const newChat = () => { setCurrentSessId(null); setMessages([{ role: "assistant", content: t("mediBotIntro") }]); if (isMobile) setHistoryOpen(false); };
+
+    const newChat = () => {
+        setCurrentSessId(null);
+        setMessages([{ role: "assistant", content: t("mediBotIntro") || "Hello! How can I help you today?" }]);
+        setImageBase64("");
+        setInput("");
+        if (isMobile) setHistoryOpen(false);
+    };
+
     const delSession = async (id, e) => {
         e.stopPropagation();
         const r = await fetch(`${API_BASE}/api/medibot/sessions/${id}`, { method: "DELETE", credentials: "include", headers: authUtils.getAuthHeaders() });
         if (r.ok) { setSessions(p => p.filter(s => s._id !== id)); if (currentSessId === id) newChat(); }
     };
 
-    /* ── file / send ─────────────────────────────────────────────────── */
     const handleFile = (e) => {
         const f = e.target.files[0]; if (!f) return;
         const reader = new FileReader();
-        reader.onloadend = () => setImageBase64(reader.result);
+        reader.onloadend = () => { setImageBase64(reader.result); setSelectedImageType("auto"); };
         reader.readAsDataURL(f);
+        // reset so same file can be picked again
+        e.target.value = "";
     };
+
+    // ── Enhance prompt ──────────────────────────────────────────────────────
+    const handleEnhance = async () => {
+        if (!input.trim() || isEnhancing) return;
+        setIsEnhancing(true);
+        try {
+            const r = await fetch(`${API_BASE}/api/medibot/enhance-prompt`, {
+                method: "POST",
+                headers: { ...authUtils.getAuthHeaders(), "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: input, imageType: imageBase64 ? selectedImageType : null }),
+            });
+            const d = await r.json();
+            if (r.ok && d.enhanced) setInput(d.enhanced);
+        } catch { }
+        setIsEnhancing(false);
+    };
+
+    // ── Send ─────────────────────────────────────────────────────────────────
     const send = async () => {
         if ((!input.trim() && !imageBase64) || isLoading) return;
-        setMessages(p => [...p, { role: "user", content: input, image: imageBase64 }]);
-        const pay = { sessionId: currentSessId, message: input, image: imageBase64 };
+
+        // Build display message with type badge
+        const typeBadge = imageBase64 ? (IMAGE_TYPES.find(t => t.value === selectedImageType)?.label || "") : "";
+        setMessages(p => [...p, { role: "user", content: input, image: imageBase64, typeBadge }]);
+        const pay = { sessionId: currentSessId, message: input, image: imageBase64, imageType: selectedImageType };
         setInput(""); setImageBase64(""); setIsLoading(true);
+
         try {
-            const r = await fetch(`${API_BASE}/api/medibot/chat`, { method: "POST", headers: { ...authUtils.getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(pay) });
+            const r = await fetch(`${API_BASE}/api/medibot/chat`, {
+                method: "POST",
+                headers: { ...authUtils.getAuthHeaders(), "Content-Type": "application/json" },
+                body: JSON.stringify(pay)
+            });
             const d = await r.json();
             if (r.ok) {
                 if (!currentSessId && d.session) { setCurrentSessId(d.session._id); setSessions(p => [d.session, ...p]); }
                 setMessages(p => [...p, { role: "assistant", content: d.reply }]);
-            } else { setMessages(p => [...p, { role: "assistant", content: d.error || "Error." }]); }
-        } catch { setMessages(p => [...p, { role: "assistant", content: "Network error." }]); }
+            } else {
+                setMessages(p => [...p, { role: "assistant", content: d.error || "An error occurred. Please try again." }]);
+            }
+        } catch {
+            setMessages(p => [...p, { role: "assistant", content: "Network error. Please check your connection." }]);
+        }
         setIsLoading(false);
     };
 
     const initials = (n) => n ? n[0].toUpperCase() : "U";
     const canSend = (input.trim() || imageBase64) && !isLoading;
 
-    /* ─────────────────────────────────────── RENDER ─────────────────── */
+    // Scanning label for loading state
+    const loadingLabel = imageBase64 || messages.some(m => m.image)
+        ? "🔬 Scanning medical document…"
+        : "Thinking…";
+
     return (
         <Box sx={{ minHeight: "100vh", background: "#090909", color: "#fff", fontFamily: "'Poppins',sans-serif" }}>
 
-            {/* ══ 1. TOP APP NAVBAR (sticky) ══════════════════════════════ */}
+            {/* ══ TOP NAV ══ */}
             <Box sx={{
                 height: NAV_H, display: "flex", alignItems: "center",
                 justifyContent: "space-between", px: { xs: 2, md: 4 },
@@ -129,7 +183,6 @@ export default function MediBotPage() {
                 background: "rgba(9,9,9,0.97)", backdropFilter: "blur(14px)",
                 position: "sticky", top: 0, zIndex: 300,
             }}>
-                {/* left */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
                     {isMobile && <IconButton sx={{ color: "#fff" }} onClick={() => setOpenSidebar(true)}><MenuIcon /></IconButton>}
                     <Box sx={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#ff2b2b,#c62828)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 10px rgba(255,43,43,0.45)" }}>
@@ -139,10 +192,13 @@ export default function MediBotPage() {
                         Real-Hero
                     </Typography>
                 </Box>
-                {/* right */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                    <Chip icon={<SmartToyIcon sx={{ fontSize: "13px !important", color: "#ff2b2b !important" }} />} label="MediBot AI" size="small"
-                        sx={{ bgcolor: "rgba(255,43,43,0.07)", color: "#ff7070", fontWeight: 700, border: "1px solid rgba(255,43,43,0.18)", borderRadius: 2, fontSize: "0.68rem" }} />
+                    <Chip
+                        icon={<SmartToyIcon sx={{ fontSize: "13px !important", color: "#ff2b2b !important" }} />}
+                        label="MediBot AI"
+                        size="small"
+                        sx={{ bgcolor: "rgba(255,43,43,0.07)", color: "#ff7070", fontWeight: 700, border: "1px solid rgba(255,43,43,0.18)", borderRadius: 2, fontSize: "0.68rem" }}
+                    />
                     <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)}>
                         <Avatar src={user?.profilePhoto} sx={{ bgcolor: "#ff2b2b", border: "2px solid rgba(255,43,43,0.4)", width: 33, height: 33, fontSize: "0.82rem" }}>
                             {!user?.profilePhoto && initials(user?.name)}
@@ -165,33 +221,25 @@ export default function MediBotPage() {
                 </Box>
             </Box>
 
-            {/* ══ 2. BODY (below sticky nav) ══════════════════════════════ */}
-            {/*
-                We deliberately do NOT use overflow:hidden here.
-                Each column manages its own scroll/overflow internally.
-            */}
+            {/* ══ BODY ══ */}
             <Box sx={{ display: "flex", height: `calc(100vh - ${NAV_H}px)` }}>
 
-                {/* Platform sidebar – desktop */}
+                {/* Platform sidebar */}
                 {!isMobile && (
-                    <Box sx={{
-                        width: 240, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.05)", overflowY: "auto",
-                        "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: "rgba(255,255,255,0.06)" }
-                    }}>
+                    <Box sx={{ width: 240, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.05)", overflowY: "auto", "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: "rgba(255,255,255,0.06)" } }}>
                         <Sidebar />
                     </Box>
                 )}
-                {/* Platform sidebar – mobile */}
                 {isMobile && (
                     <Drawer open={openSidebar} onClose={() => setOpenSidebar(false)} sx={{ "& .MuiDrawer-paper": { width: 260, background: "#0b0b0b" } }}>
                         <Sidebar onClose={() => setOpenSidebar(false)} />
                     </Drawer>
                 )}
 
-                {/* ══ 3. CHAT SHELL ════════════════════════════════════════ */}
+                {/* ══ CHAT SHELL ══ */}
                 <Box sx={{ flex: 1, minWidth: 0, display: "flex", background: "rgba(11,11,11,0.9)" }}>
 
-                    {/* Chat history sidebar (collapsible) */}
+                    {/* History sidebar */}
                     {historyOpen && (
                         <Box sx={{ width: 240, flexShrink: 0, borderRight: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", background: "rgba(15,15,15,0.99)" }}>
                             <Box sx={{ p: 2, flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -217,15 +265,14 @@ export default function MediBotPage() {
                         </Box>
                     )}
 
-                    {/* ══ 4. CHAT PANEL (position:relative → absolute children) ══ */}
+                    {/* ══ CHAT PANEL ══ */}
                     <Box sx={{ flex: 1, minWidth: 0, position: "relative" }}>
 
-                        {/* ── 4a. MediBot inner header ── PINNED to top ─────── */}
+                        {/* Inner header */}
                         <Box sx={{
                             position: "absolute", top: 0, left: 0, right: 0,
                             height: BOT_H, zIndex: 10,
-                            display: "flex", alignItems: "center",
-                            px: 2,
+                            display: "flex", alignItems: "center", px: 2,
                             borderBottom: "1px solid rgba(255,255,255,0.07)",
                             background: "rgba(13,13,13,0.98)",
                         }}>
@@ -239,7 +286,9 @@ export default function MediBotPage() {
                             </Avatar>
                             <Box sx={{ flex: 1 }}>
                                 <Typography sx={{ fontWeight: 700, fontSize: "0.92rem", lineHeight: 1.2 }}>MediBot</Typography>
-                                <Typography sx={{ fontSize: "0.66rem", color: "rgba(255,255,255,0.33)" }}>Powered by AI · Blood Donation Specialist</Typography>
+                                <Typography sx={{ fontSize: "0.66rem", color: "rgba(255,255,255,0.33)" }}>
+                                    Powered by AI · Prescription · X-Ray · Lab Reports · Medicines
+                                </Typography>
                             </Box>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                                 <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "#4caf50", boxShadow: "0 0 5px #4caf50" }} />
@@ -247,7 +296,7 @@ export default function MediBotPage() {
                             </Box>
                         </Box>
 
-                        {/* ── 4b. Messages ── scrollable, below header, above input ── */}
+                        {/* Messages */}
                         <Box sx={{
                             position: "absolute",
                             top: BOT_H, bottom: INPUT_H, left: 0, right: 0,
@@ -271,13 +320,28 @@ export default function MediBotPage() {
                                             borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
                                             border: msg.role === "user" ? "1px solid rgba(255,43,43,0.18)" : "1px solid rgba(255,255,255,0.05)",
                                         }}>
-                                            {msg.image && <Box sx={{ mb: 1, borderRadius: 2, overflow: "hidden" }}><img src={msg.image} alt="upload" style={{ maxWidth: "100%", maxHeight: 220, display: "block" }} /></Box>}
+                                            {/* Image preview in message */}
+                                            {msg.image && (
+                                                <Box sx={{ mb: 1 }}>
+                                                    <Box sx={{ position: "relative", display: "inline-block", borderRadius: 2, overflow: "hidden" }}>
+                                                        <img src={msg.image} alt="upload" style={{ maxWidth: "100%", maxHeight: 200, display: "block", borderRadius: 8 }} />
+                                                        {msg.typeBadge && (
+                                                            <Box sx={{ position: "absolute", bottom: 6, left: 6, bgcolor: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)", borderRadius: 1, px: 1, py: 0.3 }}>
+                                                                <Typography sx={{ fontSize: "0.65rem", color: "#fff", fontWeight: 600 }}>{msg.typeBadge}</Typography>
+                                                            </Box>
+                                                        )}
+                                                    </Box>
+                                                </Box>
+                                            )}
                                             <ReactMarkdown components={{
                                                 p: ({ node, ...p }) => <p style={{ margin: "0 0 6px 0", color: "rgba(255,255,255,0.88)", fontSize: "0.89rem", lineHeight: 1.65 }} {...p} />,
                                                 ul: ({ node, ...p }) => <ul style={{ marginLeft: 16, marginBottom: 6, color: "rgba(255,255,255,0.82)", fontSize: "0.87rem" }} {...p} />,
                                                 li: ({ node, ...p }) => <li style={{ marginBottom: 3 }} {...p} />,
                                                 strong: ({ node, ...p }) => <strong style={{ color: "#ff8a8a" }} {...p} />,
                                                 code: ({ node, ...p }) => <code style={{ background: "rgba(255,255,255,0.08)", padding: "2px 5px", borderRadius: 3, fontSize: "0.81em" }} {...p} />,
+                                                table: ({ node, ...p }) => <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.82rem", marginBottom: 8 }} {...p} />,
+                                                th: ({ node, ...p }) => <th style={{ borderBottom: "1px solid rgba(255,255,255,0.15)", padding: "4px 8px", textAlign: "left", color: "#ff8a8a" }} {...p} />,
+                                                td: ({ node, ...p }) => <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "4px 8px", color: "rgba(255,255,255,0.82)" }} {...p} />,
                                             }}>
                                                 {msg.content}
                                             </ReactMarkdown>
@@ -295,7 +359,7 @@ export default function MediBotPage() {
                                     <Avatar sx={{ bgcolor: "rgba(255,43,43,0.1)", border: "1px solid rgba(255,43,43,0.22)", width: 29, height: 29, flexShrink: 0 }}>
                                         <SmartToyIcon sx={{ color: "#ff2b2b", fontSize: 15 }} />
                                     </Avatar>
-                                    <Box sx={{ px: 2.2, py: 1.4, borderRadius: "16px 16px 16px 4px", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.026)", display: "flex", gap: 0.6 }}>
+                                    <Box sx={{ px: 2.2, py: 1.4, borderRadius: "16px 16px 16px 4px", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.026)", display: "flex", alignItems: "center", gap: 1.2 }}>
                                         {[0, 1, 2].map(i => (
                                             <Box key={i} sx={{
                                                 width: 6, height: 6, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.28)",
@@ -303,62 +367,123 @@ export default function MediBotPage() {
                                                 "@keyframes bounce": { "0%,100%": { transform: "translateY(0)" }, "50%": { transform: "translateY(-5px)" } }
                                             }} />
                                         ))}
+                                        <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", ml: 0.5 }}>{loadingLabel}</Typography>
                                     </Box>
                                 </Box>
                             )}
                             <div ref={endRef} />
                         </Box>
 
-                        {/* ── 4c. Input bar ── PINNED to bottom ──────────────── */}
+                        {/* ══ INPUT BAR ══ */}
                         <Box sx={{
                             position: "absolute", bottom: 0, left: 0, right: 0,
                             height: INPUT_H, zIndex: 10,
                             px: { xs: 2, md: 3 }, pt: 1, pb: 1.5,
                             borderTop: "1px solid rgba(255,255,255,0.05)",
                             background: "rgba(11,11,11,0.97)",
-                            display: "flex", flexDirection: "column", justifyContent: "center",
+                            display: "flex", flexDirection: "column", justifyContent: "center", gap: 0.8,
                         }}>
+                            {/* ── Image preview + type selector (shows when image attached) ── */}
                             {imageBase64 && (
-                                <Box sx={{ mb: 0.8, display: "flex" }}>
-                                    <Box sx={{ position: "relative", display: "inline-block" }}>
-                                        <img src={imageBase64} alt="preview" style={{ height: 40, borderRadius: 6, border: "1px solid rgba(255,255,255,0.12)" }} />
-                                        <IconButton size="small" onClick={() => setImageBase64("")} sx={{ position: "absolute", top: -7, right: -7, bgcolor: "#ff2b2b", color: "white", width: 18, height: 18, "&:hover": { bgcolor: "#cc0000" } }}>
-                                            <Box sx={{ fontSize: 12, fontWeight: "bold" }}>×</Box>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                                    {/* Thumbnail */}
+                                    <Box sx={{ position: "relative", flexShrink: 0 }}>
+                                        <img src={imageBase64} alt="preview" style={{ height: 36, borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", display: "block" }} />
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => setImageBase64("")}
+                                            sx={{ position: "absolute", top: -7, right: -7, bgcolor: "#ff2b2b", color: "white", width: 16, height: 16, "&:hover": { bgcolor: "#cc0000" } }}
+                                        >
+                                            <Box sx={{ fontSize: 11, fontWeight: "bold", lineHeight: 1 }}>×</Box>
                                         </IconButton>
                                     </Box>
+                                    {/* Type chips */}
+                                    {IMAGE_TYPES.map(tp => (
+                                        <Chip
+                                            key={tp.value}
+                                            label={tp.label}
+                                            size="small"
+                                            onClick={() => setSelectedImageType(tp.value)}
+                                            sx={{
+                                                height: 22, fontSize: "0.68rem", cursor: "pointer", fontWeight: selectedImageType === tp.value ? 700 : 400,
+                                                bgcolor: selectedImageType === tp.value ? `${tp.color}22` : "rgba(255,255,255,0.04)",
+                                                color: selectedImageType === tp.value ? tp.color : "rgba(255,255,255,0.45)",
+                                                border: selectedImageType === tp.value ? `1px solid ${tp.color}55` : "1px solid rgba(255,255,255,0.07)",
+                                                transition: "all 0.18s",
+                                                "&:hover": { bgcolor: `${tp.color}18`, color: tp.color },
+                                            }}
+                                        />
+                                    ))}
                                 </Box>
                             )}
+
+                            {/* ── Text input row ── */}
                             <Box sx={{
-                                display: "flex", alignItems: "center", gap: 1, background: "rgba(22,22,22,0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", px: 1.5, py: 0.4,
+                                display: "flex", alignItems: "center", gap: 1,
+                                background: "rgba(22,22,22,0.95)", border: "1px solid rgba(255,255,255,0.08)",
+                                borderRadius: "12px", px: 1.5, py: 0.4,
                                 "&:focus-within": { borderColor: "rgba(255,43,43,0.38)", boxShadow: "0 0 0 2px rgba(255,43,43,0.05)" }
                             }}>
                                 <input type="file" accept="image/*" ref={fileRef} style={{ display: "none" }} onChange={handleFile} />
-                                <Tooltip title="Attach image">
-                                    <IconButton size="small" onClick={() => fileRef.current.click()} sx={{ color: "rgba(255,255,255,0.28)", "&:hover": { color: "#fff" } }}>
+                                <Tooltip title="Attach prescription / X-ray / lab report / medicine">
+                                    <IconButton size="small" onClick={() => fileRef.current.click()} sx={{ color: imageBase64 ? "#ff8a8a" : "rgba(255,255,255,0.28)", "&:hover": { color: "#fff" } }}>
                                         <AttachFileIcon sx={{ fontSize: 18 }} />
                                     </IconButton>
                                 </Tooltip>
+
                                 <InputBase
-                                    placeholder={t("askMediBotPlaceholder") || "Ask about blood donation…"}
+                                    placeholder={imageBase64 ? "Add a note (optional) or send the image…" : "Ask MediBot or upload a prescription / X-ray / lab report…"}
                                     multiline maxRows={3} value={input}
                                     onChange={e => setInput(e.target.value)}
                                     onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                                     sx={{ flex: 1, color: "#fff", fontFamily: "'Poppins',sans-serif", fontSize: "0.88rem", py: 0.8 }}
                                 />
-                                <IconButton size="small" onClick={send} disabled={!canSend} sx={{ width: 32, height: 32, bgcolor: canSend ? "#ff2b2b" : "rgba(255,255,255,0.04)", color: canSend ? "#fff" : "rgba(255,255,255,0.18)", "&:hover": { bgcolor: canSend ? "#d42020" : "rgba(255,255,255,0.04)" }, transition: "all 0.2s" }}>
+
+                                {/* ✨ Enhance button */}
+                                <Tooltip title="✨ Enhance my prompt with AI">
+                                    <span>
+                                        <IconButton
+                                            size="small"
+                                            onClick={handleEnhance}
+                                            disabled={!input.trim() || isEnhancing}
+                                            sx={{
+                                                width: 30, height: 30,
+                                                bgcolor: input.trim() && !isEnhancing ? "rgba(156,126,247,0.12)" : "rgba(255,255,255,0.03)",
+                                                color: input.trim() && !isEnhancing ? "#9c7ef7" : "rgba(255,255,255,0.15)",
+                                                "&:hover": { bgcolor: "rgba(156,126,247,0.22)" },
+                                                transition: "all 0.2s", mr: 0.3
+                                            }}
+                                        >
+                                            {isEnhancing
+                                                ? <CircularProgress size={13} sx={{ color: "#9c7ef7" }} />
+                                                : <AutoFixHighIcon sx={{ fontSize: 15 }} />
+                                            }
+                                        </IconButton>
+                                    </span>
+                                </Tooltip>
+
+                                {/* Send button */}
+                                <IconButton
+                                    size="small" onClick={send} disabled={!canSend}
+                                    sx={{
+                                        width: 32, height: 32,
+                                        bgcolor: canSend ? "#ff2b2b" : "rgba(255,255,255,0.04)",
+                                        color: canSend ? "#fff" : "rgba(255,255,255,0.18)",
+                                        "&:hover": { bgcolor: canSend ? "#d42020" : "rgba(255,255,255,0.04)" },
+                                        transition: "all 0.2s"
+                                    }}
+                                >
                                     <SendIcon sx={{ fontSize: 16 }} />
                                 </IconButton>
                             </Box>
-                            <Typography sx={{ textAlign: "center", fontSize: "0.63rem", color: "rgba(255,255,255,0.16)", mt: 0.6 }}>
-                                MediBot can make mistakes. Verify critical medical information.
+
+                            <Typography sx={{ textAlign: "center", fontSize: "0.62rem", color: "rgba(255,255,255,0.14)", mt: 0.2 }}>
+                                MediBot can make mistakes. Verify critical medical information with a licensed physician.
                             </Typography>
                         </Box>
                     </Box>
-                    {/* end chat panel */}
                 </Box>
-                {/* end chat shell */}
             </Box>
-            {/* end body */}
         </Box>
     );
 }
