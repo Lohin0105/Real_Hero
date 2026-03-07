@@ -16,7 +16,8 @@ const BLOOD_RARITY = { 'AB-': 5, 'B-': 4, 'A-': 4, 'O-': 5, 'AB+': 2, 'B+': 1, '
 export const getUserStats = async (req, res) => {
     try {
         const { userId } = req.params;
-        const donationLogs = await RewardLog.find({ userId, type: 'donation_completed' }).sort({ createdAt: 1 });
+        // Count both donation_completed AND primary_reward/backup_reward types so the total is accurate
+        const donationLogs = await RewardLog.find({ userId, type: { $in: ['donation_completed', 'primary_reward', 'backup_reward'] } }).sort({ createdAt: 1 });
         const totalDonations = donationLogs.length;
 
         const monthlyData = {};
@@ -128,11 +129,7 @@ const calculateDaysSince = (lastDonationDate) => {
  */
 export const getDonorReadiness = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(req.user._id || req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         let score = 0;
@@ -216,7 +213,7 @@ export const getShortageRisk = async (req, res) => {
         const ALL_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
 
         const [activeRequests, availableDonors] = await Promise.all([
-            Request.aggregate([{ $match: { status: { $in: ['pending', 'open', 'active'] } } }, { $group: { _id: '$bloodGroup', count: { $sum: 1 } } }]),
+            Request.aggregate([{ $match: { status: { $in: ['pending', 'open', 'active', 'primary_assigned', 'backup_assigned'] } } }, { $group: { _id: '$bloodGroup', count: { $sum: 1 } } }]),
             User.aggregate([{ $match: { available: true } }, { $group: { _id: '$bloodGroup', count: { $sum: 1 } } }])
         ]);
 
@@ -426,11 +423,7 @@ export const getPlatformStats = async (req, res) => {
  */
 export const getDonorLoyaltyTier = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(req.user._id || req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         const now = Date.now();
@@ -520,11 +513,7 @@ export const getDonorLoyaltyTier = async (req, res) => {
  */
 export const getBestDonationTime = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(req.user._id || req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -581,13 +570,9 @@ export const getBestDonationTime = async (req, res) => {
  */
 export const getImpactTrajectory = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const userId = decoded.id;
+        const userId = req.user._id || req.user.id;
 
-        const donationLogs = await RewardLog.find({ userId, type: 'donation_completed' }).sort({ createdAt: 1 });
+        const donationLogs = await RewardLog.find({ userId, type: { $in: ['donation_completed', 'primary_reward', 'backup_reward'] } }).sort({ createdAt: 1 });
         const totalSoFar = donationLogs.length;
 
         // Build monthly counts for last 6 months
@@ -643,11 +628,7 @@ export const getImpactTrajectory = async (req, res) => {
  */
 export const getAIGenerativeInsight = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(req.user._id || req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         // Get most needed blood group
@@ -700,11 +681,7 @@ export const getAIGenerativeInsight = async (req, res) => {
  */
 export const getAIHealthAdvisor = async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: 'Auth required' });
-        const jwt = (await import('jsonwebtoken')).default;
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'default_secret');
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(req.user._id || req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         const now = Date.now();
