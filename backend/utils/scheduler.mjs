@@ -4,6 +4,15 @@ import User from "../models/User.mjs";
 import mongoose from "mongoose";
 import { sendMail } from "./emailNotifier.mjs";
 
+// Self-ping to prevent Render free tier from sleeping (backup — use UptimeRobot as primary)
+const selfPing = () => {
+    const url = process.env.SERVER_BASE || null;
+    if (!url) return; // only runs if SERVER_BASE env var is set on Render
+    fetch(url + "/")
+        .then(() => console.log("[KeepAlive] Self-ping OK"))
+        .catch(err => console.warn("[KeepAlive] Self-ping failed:", err.message));
+};
+
 export const initScheduler = () => {
     console.log("Scheduler initialized: Running every 5 minutes...");
 
@@ -12,11 +21,12 @@ export const initScheduler = () => {
     cleanupOldRequests();
     checkWatchers();
 
-    // Then every 5 minutes
+    // Then every 5 minutes — also self-ping to keep Render awake
     setInterval(() => {
         checkTimeouts();
         cleanupOldRequests();
         checkWatchers();
+        selfPing();
     }, 5 * 60 * 1000);
 };
 
