@@ -280,7 +280,8 @@ export default function Dashboard() {
       });
       if (res.ok) {
         const data = await res.json();
-        setRecentRequests(data.requests || []);
+        // API returns a plain array (not { requests: [...] })
+        setRecentRequests(Array.isArray(data) ? data : (data.requests || []));
       }
     } catch (err) {
       console.error("loadRequests error:", err);
@@ -634,7 +635,14 @@ export default function Dashboard() {
                           {r.name}
                         </Typography>
                         {r.distanceKm && (
-                          <Chip label={`📍 ${r.distanceKm} km`} size="small" sx={{ height: 18, fontSize: 10, bgcolor: "rgba(255,255,255,0.05)", color: "#aaa" }} />
+                          <Chip label={`📍 ${r.distanceKm} km away`} size="small" sx={{ height: 18, fontSize: 10, bgcolor: "rgba(255,255,255,0.05)", color: "#aaa" }} />
+                        )}
+                        {r.location?.lat && (
+                          <Chip
+                            label={`📍 ${parseFloat(r.location.lat).toFixed(3)}°N, ${parseFloat(r.location.lng).toFixed(3)}°E`}
+                            size="small"
+                            sx={{ height: 18, fontSize: 10, bgcolor: "rgba(79,195,247,0.08)", color: "#4fc3f7", border: "1px solid rgba(79,195,247,0.2)" }}
+                          />
                         )}
                       </Box>
                       <Typography sx={{ color: "#777", fontSize: 12, mt: 0.2 }}>
@@ -649,7 +657,7 @@ export default function Dashboard() {
 
                     <Button
                       size="small"
-                      onClick={() => navigate("/donate")}
+                      onClick={() => navigate(`/donate?id=${r._id}`)}
                       sx={{
                         flexShrink: 0,
                         background: "linear-gradient(135deg,#ff2b2b,#b60000)",
@@ -658,7 +666,7 @@ export default function Dashboard() {
                         "&:hover": { background: "linear-gradient(135deg,#ff4c4c,#cc0000)", boxShadow: "0 4px 16px rgba(255,43,43,0.35)" },
                       }}
                     >
-                      Help
+                      🩸 Help
                     </Button>
                   </Box>
                 ))}

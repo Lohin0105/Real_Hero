@@ -156,11 +156,18 @@ const MapComponent = ({ requests = [], userLocation, onNavigate }) => {
                 >
                     <AutoCenter center={center} zoom={zoom} />
 
-                    {/* Dark map tiles (CartoDB Dark Matter) */}
+                    {/* Satellite imagery tiles (Esri World Imagery) */}
                     <TileLayer
-                        attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                        subdomains="abcd"
+                        attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+                        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                        maxZoom={19}
+                    />
+                    {/* Label overlay for street names & place labels on satellite */}
+                    <TileLayer
+                        attribution=''
+                        url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                        maxZoom={19}
+                        opacity={0.85}
                     />
 
                     {/* User location */}
@@ -217,6 +224,11 @@ const MapComponent = ({ requests = [], userLocation, onNavigate }) => {
                                         {req.hospital && (
                                             <Typography sx={{ fontSize: 11.5, color: '#444' }}>
                                                 🏥 <strong>{req.hospital}</strong>
+                                            </Typography>
+                                        )}
+                                        {req.location?.lat && (
+                                            <Typography sx={{ fontSize: 11.5, color: '#444' }}>
+                                                📍 <strong>{req.location.lat.toFixed(4)}°N, {req.location.lng.toFixed(4)}°E</strong>
                                             </Typography>
                                         )}
                                         {req.urgency && (
@@ -280,19 +292,20 @@ const MapComponent = ({ requests = [], userLocation, onNavigate }) => {
                 {/* Overlay legend */}
                 <Box sx={{
                     position: 'absolute', bottom: 12, left: 12, zIndex: 1000,
-                    background: 'rgba(10,10,10,0.85)', backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.13)',
                     borderRadius: 2, px: 1.5, py: 1,
                     display: 'flex', alignItems: 'center', gap: 1.5,
                     pointerEvents: 'none',
                 }}>
+                    <Typography sx={{ fontSize: 9.5, color: 'rgba(255,255,255,0.55)', letterSpacing: 1, textTransform: 'uppercase', mr: 0.5 }}>🛰 Satellite</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#ff2b2b', boxShadow: '0 0 6px #ff2b2b' }} />
-                        <Typography sx={{ fontSize: 10, color: '#aaa' }}>Blood Request</Typography>
+                        <Typography sx={{ fontSize: 10, color: '#ccc' }}>Blood Request</Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#fff', border: '2px solid #ff2b2b' }} />
-                        <Typography sx={{ fontSize: 10, color: '#aaa' }}>You</Typography>
+                        <Typography sx={{ fontSize: 10, color: '#ccc' }}>You</Typography>
                     </Box>
                 </Box>
             </Box>
