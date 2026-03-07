@@ -337,11 +337,12 @@ export const getDemandSimulation = async (req, res) => {
                 const d = new Date(now);
                 d.setDate(d.getDate() + i);
 
-                const predicted = Math.max(0, Math.round(forecastData[i]));
-                // Mark weekends (Sat/Sun) and month-end days as surge — consistent with the fallback logic
+                // Floor at 1 so bar chart always has visible bars
+                const predicted = Math.max(1, Math.round(forecastData[i]));
+                // Mark weekends (Sat/Sun) and month-end days as surge
                 const dow = d.getDay();
                 const dom = d.getDate();
-                const isSurge = (dow === 0 || dow === 6 || dom >= 26) && predicted > 0;
+                const isSurge = (dow === 0 || dow === 6 || dom >= 26);
 
                 days.push({
                     day: d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
@@ -349,7 +350,13 @@ export const getDemandSimulation = async (req, res) => {
                     isSurge
                 });
             }
-            trend = aiForecast.trend.toLowerCase();
+
+            // Normalize trend: Python returns "Increasing"/"Decreasing"/"Stable"
+            // Map to "rising"/"falling"/"stable" to match frontend & fallback heuristic
+            const rawTrend = (aiForecast.trend || 'stable').toLowerCase();
+            trend = rawTrend === 'increasing' ? 'rising'
+                : rawTrend === 'decreasing' ? 'falling'
+                    : rawTrend;
         } else {
             // Fallback if AI Service is down
             for (let i = 0; i < 7; i++) {
@@ -364,7 +371,7 @@ export const getDemandSimulation = async (req, res) => {
                 const seed = d.getDate() * 17 + d.getMonth() * 31;
                 const noise = 0.82 + ((seed % 37) / 100);
 
-                const predicted = Math.max(0, Math.round(requestBaseRate * rarityFactor * weekendFactor * monthEndFactor * noise));
+                const predicted = Math.max(1, Math.round(requestBaseRate * rarityFactor * weekendFactor * monthEndFactor * noise));
                 days.push({ day: d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), predicted, isSurge: (weekendFactor > 1 || monthEndFactor > 1) && predicted > 0 });
             }
 
