@@ -290,15 +290,15 @@ export const getDemandSimulation = async (req, res) => {
         const { bloodGroup = 'O+' } = req.query;
         const rarity = BLOOD_RARITY[bloodGroup] || 1;
 
-        // Build 30 days of actual historical data from the Database
+        // Build 60 days of actual historical data from the Database for the Holt-Winters Model
         const now = new Date();
-        const thirtyDaysAgo = new Date(now);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const sixtyDaysAgo = new Date(now);
+        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
         const [recentRequests, historyAgg] = await Promise.all([
-            Request.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+            Request.countDocuments({ createdAt: { $gte: sixtyDaysAgo } }),
             Request.aggregate([
-                { $match: { bloodGroup, createdAt: { $gte: thirtyDaysAgo } } },
+                { $match: { bloodGroup, createdAt: { $gte: sixtyDaysAgo } } },
                 {
                     $group: {
                         _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
@@ -308,12 +308,13 @@ export const getDemandSimulation = async (req, res) => {
             ])
         ]);
 
-        const requestBaseRate = Math.max(recentRequests / 30, 0.3);
+        // Base rate based on last 60 days
+        const requestBaseRate = Math.max(recentRequests / 60, 0.5);
 
-        // Map contiguous array of 30 integers for the ML Time Series
+        // Map contiguous array of 60 integers for the ML Time Series
         const historyMap = Object.fromEntries(historyAgg.map(h => [h._id, h.count]));
         const historyData = [];
-        for (let i = 30; i > 0; i--) {
+        for (let i = 60; i > 0; i--) {
             const d = new Date(now);
             d.setDate(d.getDate() - i);
             const dateStr = d.toISOString().split('T')[0];
@@ -362,11 +363,11 @@ export const getDemandSimulation = async (req, res) => {
                 const dow = d.getDay();
                 const dom = d.getDate();
 
-                const weekendFactor = (dow === 0 || dow === 6) ? 1.35 : 1.0;
-                const monthEndFactor = dom >= 26 ? 1.2 : 1.0;
-                const rarityFactor = 1 + (rarity - 1) * 0.18;
+                const weekendFactor = (dow === 0 || dow === 6) ? 1.45 : 1.0;
+                const monthEndFactor = dom >= 26 || dom <= 3 ? 1.25 : 1.0;
+                const rarityFactor = 1 + ((rarity - 1) * 0.25);
                 const seed = d.getDate() * 17 + d.getMonth() * 31;
-                const noise = 0.82 + ((seed % 37) / 100);
+                const noise = 0.85 + ((seed % 31) / 100);
 
                 const predicted = Math.max(1, Math.round(requestBaseRate * rarityFactor * weekendFactor * monthEndFactor * noise));
                 days.push({ day: d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), predicted, isSurge: (weekendFactor > 1 || monthEndFactor > 1) && predicted > 0 });

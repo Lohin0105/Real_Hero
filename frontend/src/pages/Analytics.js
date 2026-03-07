@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import {
     Box, Typography, Grid, Avatar, Button, CircularProgress,
@@ -27,6 +27,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import RestaurantIcon from "@mui/icons-material/Restaurant";
 import DirectionsRunIcon from "@mui/icons-material/DirectionsRun";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import { authUtils } from "../utils/auth";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, ChartTooltip, Legend);
@@ -147,6 +149,8 @@ export default function Analytics() {
     const [readiness, setReadiness] = useState(null);
     const [shortageRisk, setShortageRisk] = useState(null);
     const [demandSim, setDemandSim] = useState(null);
+    const [simLoading, setSimLoading] = useState(false);
+    const [simLastUpdated, setSimLastUpdated] = useState(null);
     const [platformStats, setPlatformStats] = useState(null);
     const [loyaltyTier, setLoyaltyTier] = useState(null);
     const [bestTime, setBestTime] = useState(null);
@@ -160,6 +164,7 @@ export default function Analytics() {
     const [openSidebar, setOpenSidebar] = useState(false);
     const [anchorEl, setAnchorEl] = useState(null);
     const navigate = useNavigate();
+    const simIntervalRef = useRef(null);
 
     const loadAll = useCallback(async () => {
         setLoading(true);
@@ -201,13 +206,26 @@ export default function Analytics() {
 
     useEffect(() => { loadAll(); }, [loadAll]);
 
-    // Refetch demand sim when blood group changes
-    const refetchSim = async (bg) => {
+    // ── Live polling for demand simulation (every 60 s) ──────────────────────
+    const refetchSim = useCallback(async (bg, showSpinner = false) => {
+        if (showSpinner) setSimLoading(true);
         try {
             const res = await fetch(`${API_BASE}/api/analytics/ml/demand-simulation?bloodGroup=${encodeURIComponent(bg)}`, { headers: authUtils.getAuthHeaders() });
-            if (res.ok) setDemandSim(await res.json());
+            if (res.ok) {
+                setDemandSim(await res.json());
+                setSimLastUpdated(new Date());
+            }
         } catch (e) { }
-    };
+        if (showSpinner) setSimLoading(false);
+    }, []);
+
+    useEffect(() => {
+        // Start live polling once user is loaded
+        if (!user) return;
+        // Poll every 60 seconds
+        simIntervalRef.current = setInterval(() => refetchSim(selectedBloodGroup), 60000);
+        return () => clearInterval(simIntervalRef.current);
+    }, [user, selectedBloodGroup, refetchSim]);
 
     if (loading) return (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#080808', flexDirection: "column", gap: 2 }}>
@@ -621,16 +639,37 @@ export default function Analytics() {
                             <GlassCard accent="255,152,0">
                                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1 }}>
                                     <Box>
-                                        <Typography sx={{ fontWeight: 800, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: 1, color: "#ff9800" }}>📈 Model 3 · 7-Day Demand Simulation</Typography>
-                                        <Typography sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.68rem", mt: 0.3 }}>{demandSim?.modelUsed || "Moving Average + Seasonal Adjustment"}</Typography>
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                                            <Typography sx={{ fontWeight: 800, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: 1, color: "#ff9800" }}>📈 Model 3 · 7-Day Demand Simulation</Typography>
+                                            {/* LIVE badge */}
+                                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, bgcolor: "rgba(255,152,0,0.12)", border: "1px solid rgba(255,152,0,0.3)", borderRadius: 1, px: 1, py: 0.2 }}>
+                                                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#ff9800", boxShadow: "0 0 6px #ff9800", animation: "livePulse 1.5s infinite", "@keyframes livePulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.3 } } }} />
+                                                <Typography sx={{ color: "#ff9800", fontWeight: 800, fontSize: "0.6rem", letterSpacing: 1 }}>LIVE</Typography>
+                                            </Box>
+                                        </Box>
+                                        <Typography sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.68rem", mt: 0.3 }}>
+                                            {demandSim?.modelUsed || "Holt-Winters + DB History"}
+                                            {simLastUpdated && (
+                                                <span style={{ marginLeft: 8 }}>· Updated {simLastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                                            )}
+                                        </Typography>
                                     </Box>
                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                                         <Chip label={`Trend: ${trendIcon} ${demandSim?.trend || "stable"}`} size="small"
                                             sx={{ bgcolor: "rgba(255,255,255,0.05)", color: trendColor, fontWeight: 700, borderRadius: 1, fontSize: "0.7rem", border: `1px solid ${trendColor}44` }} />
-                                        <Box sx={{ display: "flex", gap: 0.5 }}>
-                                            {['A+', 'B+', 'O+', 'AB+', 'O-'].map(bg => (
-                                                <Chip key={bg} label={bg} size="small" onClick={() => { setSelectedBloodGroup(bg); refetchSim(bg); }}
-                                                    sx={{ bgcolor: selectedBloodGroup === bg ? "rgba(255,152,0,0.2)" : "rgba(255,255,255,0.04)", color: selectedBloodGroup === bg ? "#ff9800" : "rgba(255,255,255,0.4)", fontWeight: 700, borderRadius: 1, fontSize: "0.65rem", cursor: "pointer", border: selectedBloodGroup === bg ? "1px solid rgba(255,152,0,0.4)" : "1px solid transparent", "&:hover": { bgcolor: "rgba(255,152,0,0.12)" } }} />
+                                        {/* Manual refresh */}
+                                        <Tooltip title="Refresh now">
+                                            <IconButton size="small" onClick={() => refetchSim(selectedBloodGroup, true)}
+                                                sx={{ bgcolor: "rgba(255,152,0,0.08)", color: simLoading ? "#ff9800" : "rgba(255,255,255,0.35)", width: 26, height: 26, "&:hover": { color: "#ff9800" } }}>
+                                                {simLoading ? <CircularProgress size={12} sx={{ color: "#ff9800" }} /> : <RefreshIcon sx={{ fontSize: 14 }} />}
+                                            </IconButton>
+                                        </Tooltip>
+                                        {/* All 8 blood groups */}
+                                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                                            {['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map(bg => (
+                                                <Chip key={bg} label={bg} size="small"
+                                                    onClick={() => { setSelectedBloodGroup(bg); refetchSim(bg, true); }}
+                                                    sx={{ bgcolor: selectedBloodGroup === bg ? "rgba(255,152,0,0.2)" : "rgba(255,255,255,0.04)", color: selectedBloodGroup === bg ? "#ff9800" : "rgba(255,255,255,0.4)", fontWeight: 700, borderRadius: 1, fontSize: "0.65rem", cursor: "pointer", border: selectedBloodGroup === bg ? "1px solid rgba(255,152,0,0.4)" : "1px solid transparent", "&:hover": { bgcolor: "rgba(255,152,0,0.12)", color: "#ff9800" } }} />
                                             ))}
                                         </Box>
                                     </Box>
