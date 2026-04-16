@@ -58,6 +58,7 @@ const SECTIONS2 = [
     { path: "/analytics", icon: "📊", key: "analytics", fallback: "Analytics" },
     { path: "/leaderboard", icon: "🥇", key: "leaderboard", fallback: "Leaderboard" },
     { path: "/language", icon: "🌐", key: "languageSettings", fallback: "Language" },
+    { path: "/about", icon: "👥", key: "aboutUs", fallback: "About Us" },
 ];
 
 export default function Sidebar({ onClose }) {
@@ -122,6 +123,18 @@ export default function Sidebar({ onClose }) {
                     onClick={() => go(s.path)}
                 />
             ))}
+
+            {/* Divider */}
+            <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "16px 0" }} />
+            <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.22)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8, paddingLeft: 6, fontFamily: "Poppins" }}>
+                Support
+            </div>
+            <NavItem
+                active={false}
+                label="Help & Queries"
+                icon="✉️"
+                onClick={() => window.location.href = "mailto:lohinvemulapati@gmail.com?subject=Real-Hero%20Query"}
+            />
 
             {/* Bottom spacer */}
             <div style={{ flex: 1 }} />
