@@ -44,7 +44,22 @@ export default function Login() {
         authUtils.setToken(data.token, data.user);
         navigate("/dashboard");
       } else if (res.status === 403 && data.isVerified === false) {
-        Swal.fire("Not Verified", data.message, "warning").then(() => {
+        // Auto-request a fresh OTP since they are trying to login and likely lost the old one.
+        fetch(`${apiBase}/api/auth/resend-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        }).catch(() => {});
+
+        Swal.fire({
+          title: "Verification Required",
+          text: "We just emailed you a fresh verification code. Please check your inbox.",
+          icon: "info",
+          confirmButtonText: "Enter Code",
+          confirmButtonColor: "#ff2b2b",
+          background: "#111",
+          color: "#fff"
+        }).then(() => {
           navigate(`/verify-otp?email=${encodeURIComponent(email)}`);
         });
       } else {
