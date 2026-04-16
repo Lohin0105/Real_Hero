@@ -3,7 +3,7 @@
 import sgMail from "@sendgrid/mail";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const FROM_EMAIL = process.env.FROM_EMAIL || process.env.EMAIL_USER || "lohinvemulapati@gmail.com";
+const FROM_EMAIL = process.env.FROM_EMAIL || process.env.EMAIL_USER || "realhero.project@outlook.com";
 const MOCK_EMAIL = process.env.MOCK_EMAIL === "true";
 
 if (MOCK_EMAIL) {
