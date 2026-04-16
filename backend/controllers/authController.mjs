@@ -4,6 +4,7 @@ import User from "../models/User.mjs";
 import { generateOTP } from "../utils/generateOTP.mjs";
 import { sendMail } from "../utils/emailNotifier.mjs";
 import { getTranslation } from "../utils/translationManager.mjs";
+import crypto from "crypto";
 
 /**
  * POST /api/auth/register
@@ -11,7 +12,8 @@ import { getTranslation } from "../utils/translationManager.mjs";
  */
 export const register = async (req, res) => {
     try {
-        const { email, password, name } = req.body;
+        let { email, password, name } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
 
         if (!email || !password) {
             return res.status(400).json({ message: "Email and password are required" });
@@ -45,7 +47,7 @@ export const register = async (req, res) => {
             await existingUser.save();
         } else {
             // For legacy compatibility, handle UID as email or unique string if needed
-            userData.uid = `local-${Date.now()}`;
+            userData.uid = `local-${crypto.randomUUID()}`;
             await User.create(userData);
         }
 
@@ -108,7 +110,8 @@ export const register = async (req, res) => {
  */
 export const verifyOtp = async (req, res) => {
     try {
-        const { email, otp } = req.body;
+        let { email, otp } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
 
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ message: "User not found" });
@@ -160,7 +163,8 @@ export const verifyOtp = async (req, res) => {
  */
 export const resendOtp = async (req, res) => {
     try {
-        const { email } = req.body;
+        let { email } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
 
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ message: "User not found" });
@@ -216,7 +220,8 @@ export const resendOtp = async (req, res) => {
  */
 export const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        let { email, password } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
 
         const user = await User.findOne({ email });
         if (!user) return res.status(400).json({ message: "Invalid credentials" });
@@ -249,7 +254,8 @@ export const login = async (req, res) => {
  */
 export const forgotPasswordOtp = async (req, res) => {
     try {
-        const { email } = req.body;
+        let { email } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
         if (!email) return res.status(400).json({ message: "Email is required" });
 
         const user = await User.findOne({ email });
@@ -315,7 +321,8 @@ export const forgotPasswordOtp = async (req, res) => {
  */
 export const resetPasswordWithOtp = async (req, res) => {
     try {
-        const { email, otp, newPassword } = req.body;
+        let { email, otp, newPassword } = req.body;
+        if (email) email = String(email).toLowerCase().trim();
         if (!email || !otp || !newPassword) {
             return res.status(400).json({ message: "Email, OTP, and new password are required" });
         }

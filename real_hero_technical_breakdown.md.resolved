@@ -1,0 +1,823 @@
+# Real-Hero — Complete Technical Breakdown
+### Blood Donation System | Viva & Demo Preparation Guide
+
+---
+
+## 1. Project Architecture
+
+### Overview
+**Real-Hero** is a three-tier web application:
+
+| Layer | Technology | Hosting |
+|---|---|---|
+| Frontend | React 19 (SPA) | Netlify |
+| Backend | Node.js + Express.js (ESM) | Render |
+| Database | MongoDB Atlas (cloud) | MongoDB Atlas |
+
+### How Components Are Connected
+
+```
+[User Browser] ←→ [React SPA on Netlify]
+                         ↕ HTTPS REST API (Axios)
+                   [Express Server on Render]
+                         ↕ Mongoose ODM
+                   [MongoDB Atlas]
+                         ↕ SMTP/API
+                   [SendGrid Email Service]
+                         ↕
+                   [Firebase Cloud Messaging (Push Notifications)]
+```
+
+- Frontend sends HTTP requests (via **Axios**) to Render backend URL.
+- Backend authenticates with **JWT**, processes business logic, and reads/writes to MongoDB.
+- Email notifications use **SendGrid API** (`@sendgrid/mail`).
+- Push notifications use **Firebase Admin SDK** + `web-push`.
+- A background **scheduler** (Node.js `setInterval`) runs every 5 minutes to auto-manage request timeouts, cleanup, and watcher alerts.
+
+### Request-Response Flow (Example: User Posts Blood Request)
+
+```
+1. User fills form on Request.js page
+2. Axios POST → /api/requests/create (Bearer JWT header)
+3. authMiddleware validates JWT → attaches req.user
+4. requestController.createRequest() saves to MongoDB
+5. notifyController finds matching donors → sendMail() via SendGrid
+6. Response JSON sent back → React UI updates
+```
+
+---
+
+## 2. OTP Verification System
+
+### File: [backend/utils/generateOTP.mjs](file:///D:/Major/backend/utils/generateOTP.mjs)
+
+```javascript
+import crypto from "crypto";
+export function generateOTP() {
+    return crypto.randomInt(100000, 999999).toString();
+}
+```
+
+- Uses Node.js's **`crypto.randomInt()`** — cryptographically secure (not `Math.random()`).
+- Returns a **6-digit number** as a string, range `100000–999999`.
+
+### How OTP Is Stored
+
+The OTP is **NOT stored as plaintext**. Before saving:
+```javascript
+const hashedOtp = await bcrypt.hash(otp, 10); // salt rounds = 10
+user.otp = hashedOtp;         // hashed OTP in DB
+user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // expires in 10 min
+user.otpAttempts = 0;
+user.lastOtpSent = new Date();
+```
+
+OTP fields are stored **directly inside the `User` document** in MongoDB (not a separate temp collection). After verification, they are **deleted**:
+```javascript
+user.otp = undefined;
+user.otpExpires = undefined;
+```
+
+### How OTP Is Sent via SendGrid
+
+Flow:
+1. `authController.register()` calls [generateOTP()](file:///D:/Major/backend/utils/generateOTP.mjs#3-9) → hashes it → saves to DB
+2. Immediately sends HTTP 201 response to frontend (non-blocking)
+3. **In background (`.then()`)**: calls [sendMail()](file:///D:/Major/backend/utils/emailNotifier.mjs#25-62) from [emailNotifier.mjs](file:///D:/Major/backend/utils/emailNotifier.mjs)
+4. [sendMail()](file:///D:/Major/backend/utils/emailNotifier.mjs#25-62) uses `@sendgrid/mail` SDK with `SENDGRID_API_KEY` from [.env](file:///D:/Major/backend/.env)
+5. Email delivered to user's inbox with branded OTP HTML template
+
+### Backend API: OTP Endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/auth/register` | POST | Generate, hash, store, and email OTP |
+| `/api/auth/verify-otp` | POST | Compare submitted OTP against bcrypt hash |
+| `/api/auth/resend-otp` | POST | Generate new OTP (60s cooldown enforced) |
+| `/api/auth/forgot-password-otp` | POST | OTP for password reset |
+| `/api/auth/reset-password-otp` | POST | Verify reset OTP, update password |
+
+### Verification Logic (in [verifyOtp](file:///D:/Major/backend/controllers/authController.mjs#105-156))
+
+```javascript
+// 1. Find user by email
+// 2. Check if already verified
+// 3. Check OTP expiry (10-minute window)
+if (user.otpExpires < Date.now()) → 400 "OTP expired"
+
+// 4. Check brute-force attempts
+if (user.otpAttempts >= 5) → 403 "Too many attempts"
+
+// 5. Compare submitted vs hashed OTP
+const isMatch = await bcrypt.compare(otp, user.otp);
+if (!isMatch) { user.otpAttempts++; save(); return 400 "Invalid OTP" }
+
+// 6. On success
+user.isVerified = true;
+user.otp = user.otpExpires = undefined; // clear OTP
+// Issue JWT
+const token = jwt.sign({ id, email }, JWT_SECRET, { expiresIn: "7d" });
+```
+
+### Security Considerations
+
+| Concern | How It's Handled |
+|---|---|
+| Plaintext OTP in DB | ❌ Never. Always bcrypt-hashed (salt=10) |
+| OTP expiry | ✅ 10-minute `otpExpires` timestamp |
+| Brute-force | ✅ Max 5 attempts, locked after |
+| Re-sending cooldown | ✅ 60-second `lastOtpSent` cooldown |
+| OTP reuse | ✅ Cleared from DB after successful verification |
+| User enumeration (forgot password) | ✅ Returns generic message whether user exists or not |
+| Email interception | ✅ OTP is one-time, short-lived, hashed at rest |
+
+---
+
+## 3. Backend Modules — File-by-File
+
+### [server.mjs](file:///D:/Major/backend/server.mjs) — Application Entry Point
+- Initialises Express app on `PORT` (default 5000)
+- Sets up CORS (reads `FRONTEND_ORIGINS` from [.env](file:///D:/Major/backend/.env), supports multiple comma-separated origins)
+- Mounts all route modules under `/api/*`
+- Connects to MongoDB via [connectDB()](file:///D:/Major/backend/config/db.mjs#11-37)
+- Calls [initScheduler()](file:///D:/Major/backend/utils/scheduler.mjs#16-32) on startup
+- Runs a **background Offer follow-up processor** every 5 minutes (sends reminder emails to pending donors)
+- Global error handler (catches 413 payload-too-large and other errors)
+
+---
+
+### [config/db.mjs](file:///D:/Major/backend/config/db.mjs) — Database Connection
+- Connects to MongoDB using `mongoose.connect(MONGO_URI)`
+- `serverSelectionTimeoutMS: 5000` to fail fast
+- Fallback logic: if `mongodb+srv://` SRV DNS lookup fails, retries with `MONGO_URI_FALLBACK`
+
+---
+
+### [controllers/authController.mjs](file:///D:/Major/backend/controllers/authController.mjs) — Authentication
+**Functions:**
+
+| Function | Purpose |
+|---|---|
+| [register](file:///D:/Major/backend/controllers/authController.mjs#8-104) | Hash password, generate & email OTP, save user |
+| [verifyOtp](file:///D:/Major/backend/controllers/authController.mjs#105-156) | Verify OTP, issue JWT, mark user verified |
+| [resendOtp](file:///D:/Major/backend/controllers/authController.mjs#157-212) | Generate & send new OTP with 60s cooldown |
+| [login](file:///D:/Major/backend/controllers/authController.mjs#213-244) | Check password hash, require isVerified, issue JWT |
+| [forgotPasswordOtp](file:///D:/Major/backend/controllers/authController.mjs#245-310) | Send password-reset OTP (user-blind response) |
+| [resetPasswordWithOtp](file:///D:/Major/backend/controllers/authController.mjs#311-363) | Verify OTP, hash new password, save |
+
+Imports: `bcrypt`, `jwt`, `User` model, [generateOTP](file:///D:/Major/backend/utils/generateOTP.mjs#3-9), [sendMail](file:///D:/Major/backend/utils/emailNotifier.mjs#25-62), `getTranslation`
+
+---
+
+### [controllers/donorsController.mjs](file:///D:/Major/backend/controllers/donorsController.mjs) — Donor Management
+**Functions:**
+
+| Function | Purpose |
+|---|---|
+| [updateAvailability](file:///D:/Major/backend/controllers/donorsController.mjs#4-45) | Toggle donor's `available` flag + update GPS coordinates |
+| [getNearbyDonors](file:///D:/Major/backend/controllers/donorsController.mjs#46-107) | MongoDB `$geoNear` aggregation to find donors within radius |
+
+**Geo-matching logic:**
+```javascript
+User.aggregate([
+  { $geoNear: {
+      near: { type: "Point", coordinates: [lng, lat] },
+      distanceField: "dist.calculated",
+      query: { available: true },
+      spherical: true,
+      maxDistance: 20000  // 20km default
+  }},
+  { $limit: 6 }
+])
+```
+
+---
+
+### [controllers/requestController.mjs](file:///D:/Major/backend/controllers/requestController.mjs) — Blood Request Lifecycle
+The largest controller (~59KB). Manages complete request lifecycle:
+
+| Function | Purpose |
+|---|---|
+| `createRequest` | Create new blood request, geocode location, notify donors |
+| `getRecentRequests` | Fetch open/recent requests for dashboard |
+| `claimRequest` | Donor claims request (becomes primary) |
+| `registerInterest` | Donor sends interest (becomes backup), triggers email offer |
+| `confirmInterest` | Donor clicks YES/NO in email → updates Offer status |
+| `watchRequest` | Donor in cooldown adds themselves as watcher |
+| `verifyArrival` | Donor confirms arrival at hospital |
+| `completeDonation` | Mark donation done, award Hero Coins |
+| `cancelDonation` | Donor cancels, next backup promoted |
+| `closeRequest` | Requester closes fulfilled request |
+| `verifyDonation` | Verify donation slip/confirmation |
+| `getMyRequests` | Fetch requests created by logged-in user |
+| `getMyDonations` | Fetch donations made by logged-in user |
+
+---
+
+### [controllers/notifyController.mjs](file:///D:/Major/backend/controllers/notifyController.mjs) — Notification Engine
+Central hub for **targeted donor notifications**:
+- Finds eligible donors by blood group compatibility + geography
+- Sends personalised donation offer emails with branded HTML templates
+- Handles `Offer` model — tracks each donor's YES/NO response with secure token
+- Manages offer response (email click → server updates offer → promotes donor)
+- Sends follow-up confirmations, donor-assigned alerts, requester notifications
+
+---
+
+### [controllers/analyticsController.mjs](file:///D:/Major/backend/controllers/analyticsController.mjs) — Analytics & ML
+Provides analytics data for the Analytics page:
+- Aggregates donation statistics, blood group distribution, request trends
+- Integrates with Python ML models (calls [backend/ai/main.py](file:///D:/Major/backend/ai/main.py) subprocess)
+- Returns data for: Donor Readiness Score, Blood Shortage Risk, 7-Day Demand Simulation
+
+---
+
+### [controllers/medibotController.mjs](file:///D:/Major/backend/controllers/medibotController.mjs) — AI Chatbot
+- Integrates with Google Gemini API (`@google/generative-ai`) and Groq SDK
+- Manages `ChatSession` documents per user for conversation history
+- Handles medical Q&A about blood donation
+
+---
+
+### [controllers/pushNotificationController.mjs](file:///D:/Major/backend/controllers/pushNotificationController.mjs) — Web Push
+- Uses `web-push` library with VAPID keys
+- Stores `PushSubscription` documents in MongoDB
+- Sends browser push notifications via Firebase Cloud Messaging
+
+---
+
+### [controllers/gamificationController.mjs](file:///D:/Major/backend/controllers/gamificationController.mjs) — Hero Points
+- Tracks `heroCoins`, `leaderboardPoints`, `badges`
+- Called when donations are confirmed
+
+---
+
+### [controllers/redeemController.mjs](file:///D:/Major/backend/controllers/redeemController.mjs) — Coin Redemption
+- Handles `Redemption` and `RedemptionOption` models
+- Allows donors to redeem Hero Coins for rewards/offers
+
+---
+
+### [controllers/rewardController.mjs](file:///D:/Major/backend/controllers/rewardController.mjs) — Reward Logs
+- Manages `RewardLog` model (history of coins earned/spent)
+
+---
+
+### [utils/generateOTP.mjs](file:///D:/Major/backend/utils/generateOTP.mjs) — OTP Generator
+- `crypto.randomInt(100000, 999999)` → cryptographically secure 6-digit OTP
+
+### [utils/emailNotifier.mjs](file:///D:/Major/backend/utils/emailNotifier.mjs) — Email Sender
+- [sendMail({ to, subject, html, text })](file:///D:/Major/backend/utils/emailNotifier.mjs#25-62) — single recipient
+- [sendMailToMany({ to, subject, html, text })](file:///D:/Major/backend/utils/emailNotifier.mjs#63-74) — loop, one-by-one
+- Reads `SENDGRID_API_KEY` from env; if missing, logs error and skips
+- `MOCK_EMAIL=true` env var for dev/testing (emails only printed to console)
+- [normalizeRecipients()](file:///D:/Major/backend/utils/emailNotifier.mjs#19-24) splits comma/semicolon separated addresses
+
+### [utils/emailTemplates.mjs](file:///D:/Major/backend/utils/emailTemplates.mjs) — Branded Email HTML
+Dark glassmorphic templates; exported functions:
+- [tplDonorConfirmation](file:///D:/Major/backend/utils/emailTemplates.mjs#97-132) — ask donor to confirm YES/NO
+- [tplDonorAssigned](file:///D:/Major/backend/utils/emailTemplates.mjs#133-168) — notify donor they're assigned (primary/backup)
+- [tplRequesterDonorFound](file:///D:/Major/backend/utils/emailTemplates.mjs#169-200) — inform requester a donor confirmed
+- [tplFollowUpCheck](file:///D:/Major/backend/utils/emailTemplates.mjs#201-226) — ask requester if donation happened
+- [tplRewardEarned](file:///D:/Major/backend/utils/emailTemplates.mjs#227-250) — celebrate Hero Coins earned
+- [tplRequesterReward](file:///D:/Major/backend/utils/emailTemplates.mjs#251-274) — thank requester after fulfilment
+
+### [utils/scheduler.mjs](file:///D:/Major/backend/utils/scheduler.mjs) — Background Job Runner
+Called [initScheduler()](file:///D:/Major/backend/utils/scheduler.mjs#16-32) from [server.mjs](file:///D:/Major/backend/server.mjs). Runs every **5 minutes**:
+
+| Job | Logic |
+|---|---|
+| [checkTimeouts()](file:///D:/Major/backend/utils/scheduler.mjs#33-56) | Finds primary donors who accepted >2 hours ago but haven't arrived → promotes backup or re-opens request |
+| [cleanupOldRequests()](file:///D:/Major/backend/utils/scheduler.mjs#135-147) | Deletes requests older than 7 days |
+| [checkWatchers()](file:///D:/Major/backend/utils/scheduler.mjs#148-200) | Finds open requests >6 hours old with un-notified watchers → sends re-engagement email |
+| [selfPing()](file:///D:/Major/backend/utils/scheduler.mjs#7-15) | Pings `SERVER_BASE` URL to prevent Render free-tier sleep |
+
+### [utils/aiService.mjs](file:///D:/Major/backend/utils/aiService.mjs) — AI Service Wrapper
+Abstracts calls to Gemini/Groq APIs for MediBot.
+
+### [utils/fraudDetector.mjs](file:///D:/Major/backend/utils/fraudDetector.mjs) — Fraud Detection
+Flags suspicious donation patterns (too-frequent requests, coordinate mismatch, etc.)
+
+### [utils/reliabilityManager.mjs](file:///D:/Major/backend/utils/reliabilityManager.mjs) — Reliability Score
+Manages `reliabilityScore` on User — decreases for no-shows, increases for completions.
+
+### [utils/severityClassifier.mjs](file:///D:/Major/backend/utils/severityClassifier.mjs) — Urgency Classification
+Classifies blood request urgency from `description` text (low/normal/high/critical).
+
+### [utils/translationManager.mjs](file:///D:/Major/backend/utils/translationManager.mjs) — i18n Backend
+Provides server-side translated strings (email subjects in user's preferred language).
+
+### [utils/certificateGenerator.mjs](file:///D:/Major/backend/utils/certificateGenerator.mjs) — PDF Certificates
+Uses `pdfkit` to generate donation certificates for donors.
+
+### [middleware/authMiddleware.mjs](file:///D:/Major/backend/middleware/authMiddleware.mjs) — JWT Auth Guard
+```javascript
+// Extracts Bearer token from Authorization header
+// jwt.verify(token, JWT_SECRET) → decoded { id, email }
+// User.findById(decoded.id) → attaches req.user
+// Returns 401 if token invalid/expired
+```
+
+---
+
+## 4. Frontend Modules
+
+All pages are in `frontend/src/pages/`. Uses React Router v7 for routing.
+
+| Page | Route | API Calls | Purpose |
+|---|---|---|---|
+| `Home.js` | `/` | `/api/requests/recent` | Landing, shows open requests map & stats |
+| `Login.js` | `/login` | `POST /api/auth/login` | Email+password login, stores JWT |
+| `Register.js` | `/register` | `POST /api/auth/register` | Registration form, triggers OTP flow |
+| `VerifyOtp.js` | `/verify-otp` | `POST /api/auth/verify-otp`, `POST /api/auth/resend-otp` | OTP entry with countdown timer |
+| `Forgot.js` | `/forgot` | `POST /api/auth/forgot-password-otp`, `POST /api/auth/reset-password-otp` | Password reset flow |
+| `Dashboard.js` | `/dashboard` | `/api/user/me`, `/api/requests/recent` | Main donor dashboard |
+| `Donate.js` | `/donate` | `/api/donors/nearby`, `/api/requests/*` | Find requests, offer to donate |
+| `Request.js` | `/request` | `POST /api/requests/create` | Post a new blood request |
+| `Donations.js` | `/donations` | `/api/requests/my-donations` | User's donation history |
+| `RequestedDonations.js` | `/my-requests` | `/api/requests/my-requests` | User's posted requests |
+| `Profile.js` | `/profile` | `/api/user/me`, `PUT /api/user/update` | Edit profile, upload photo |
+| `Analytics.js` | `/analytics` | `/api/analytics/*` | Charts, ML model outputs |
+| `Gamification.js` | `/gamification` | `/api/rewards/*` | Hero Coins, badges, levels |
+| `Leaderboard.js` | `/leaderboard` | `/api/rewards/leaderboard` | Top donors ranking |
+| `Rewards.js` | `/rewards` | `/api/redeem/*` | Redeem coins for offers |
+| `MediBotPage.js` | `/medibot` | `POST /api/medibot/chat` | AI chatbot interface |
+| `MapPage.js` | `/map` | `/api/donors/nearby` | Map of nearby donors |
+| `LanguageSettings.js` | `/language` | `PUT /api/user/update` | User language preference |
+| `Splash.js` | `/splash` | — | Loading/splash screen |
+
+**Components:**
+- `Sidebar.js` — Navigation sidebar with links
+- `MapComponent.js` — Leaflet.js map with donor/request pins
+- `Filters/` — Blood group, urgency, distance filter components
+- `MediBot/` — Chat UI for the AI bot
+
+**Data Flow Pattern (example: Register → OTP):**
+```
+User types email/password → Register.js state
+↓ Submit → axios.post("/api/auth/register", { name, email, password })
+↓ 201 OK received → navigate to /verify-otp?email=...
+↓ VerifyOtp.js → user enters 6-digit code
+↓ axios.post("/api/auth/verify-otp", { email, otp })
+↓ 200 OK + JWT token received → stored in localStorage
+↓ navigate to /dashboard
+```
+
+---
+
+## 5. API Endpoints
+
+### Auth (`/api/auth`)
+
+| Method | Endpoint | Body | Response |
+|---|---|---|---|
+| POST | `/register` | `{ email, password, name }` | `{ ok, message }` |
+| POST | `/verify-otp` | `{ email, otp }` | `{ ok, token, user }` |
+| POST | `/resend-otp` | `{ email }` | `{ ok, message }` |
+| POST | `/login` | `{ email, password }` | `{ ok, token, user }` |
+| POST | `/forgot-password-otp` | `{ email }` | `{ ok, message }` |
+| POST | `/reset-password-otp` | `{ email, otp, newPassword }` | `{ ok, message }` |
+
+### Requests (`/api/requests`) — requires auth
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/create` | Create blood request |
+| GET | `/recent` | Get open requests |
+| POST | `/claim/:id` | Claim as primary donor |
+| POST | `/interest/:id` | Register as backup donor |
+| POST | `/watch/:id` | Add to watcher list |
+| GET | `/confirm-interest/:id` | Email-link response handler |
+| POST | `/verify-arrival/:id` | Confirm arrival at hospital |
+| POST | `/complete/:id` | Mark donation complete |
+| POST | `/cancel/:id` | Cancel donation |
+| POST | `/close/:id` | Close fulfilled request |
+| GET | `/my-requests` | My posted requests |
+| GET | `/my-donations` | My donations history |
+
+### Donors (`/api/donors`)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/availability` | Toggle availability + update location |
+| GET | `/nearby?lat&lng&maxDistance&limit` | Get nearby available donors |
+
+### Notify (`/api/notify`)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/broadcast` | Send alert to all matching donors |
+| POST | `/targeted` | Send to specific donor list |
+| GET | `/offer/respond` | Handle email YES/NO click |
+
+### User (`/api/user` or `/api/users`)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/me` | Get current user profile |
+| PUT | `/update` | Update profile fields |
+| GET | `/:uid` | Get public profile by UID |
+
+### Others
+
+| Prefix | Purpose |
+|---|---|
+| `/api/analytics` | Donation stats, ML model data |
+| `/api/rewards` | Leaderboard, hero coins |
+| `/api/redeem` | Redemption options & history |
+| `/api/medibot` | AI chatbot messages |
+| `/api/push` | Web push subscribe/unsubscribe |
+| `/api/translate` | Language translation |
+
+---
+
+## 6. Database Design
+
+MongoDB Atlas, accessed via **Mongoose ODM**.
+
+### Collection: `users`
+
+| Field | Type | Notes |
+|---|---|---|
+| `uid` | String | Unique internal ID (`local-<timestamp>`) |
+| `email` | String | Unique, required |
+| `password` | String | bcrypt hashed |
+| `name` | String | |
+| `isVerified` | Boolean | Set true after OTP verified |
+| `otp` | String | bcrypt-hashed OTP (null after verification) |
+| `otpExpires` | Date | 10-minute TTL |
+| `otpAttempts` | Number | Max 5 before lockout |
+| `lastOtpSent` | Date | Cooldown reference |
+| `blood` / `bloodGroup` | String | e.g., "A+" |
+| `available` | Boolean | Donor availability toggle |
+| `location` | `{lat, lng}` | Simple lat/lng |
+| `locationGeo` | GeoJSON Point | `{type:"Point", coordinates:[lng,lat]}` |
+| `lastDonation` | Date | For cooldown calculation |
+| `donationsCount` | Number | Lifetime donation count |
+| `heroCoins` / `coins` | Number | Gamification currency |
+| `leaderboardPoints` | Number | Rank on leaderboard |
+| `reliabilityScore` | Number | 0–100, default 100 |
+| `badges` | [String] | Achievement badges |
+| `preferredLanguage` | String | For i18n emails |
+| `profilePhoto` | String | Base64 encoded image |
+
+**Indexes:** `locationGeo: "2dsphere"` (geospatial), `leaderboardPoints: -1`
+
+---
+
+### Collection: `requests`
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | String | Patient/requester name |
+| `bloodGroup` | String | Required |
+| `hospital` | String | Required |
+| `phone` | String | Contact number |
+| `units` | Number | Units of blood needed |
+| `urgency` | Enum | `low/normal/high/critical` |
+| `status` | Enum | `open/primary_assigned/backup_assigned/pending_verification/fulfilled/failed/cancelled` |
+| `locationGeo` | GeoJSON | For geo-matching |
+| `primaryDonor` | Object | `{donorId, acceptedAt, confirmedAt, arrived}` |
+| `backupDonors` | Array | List of backup donor objects |
+| `watchers` | Array | `{donorId, email, name, notified}` |
+| `expiresAt` | Date | Auto-set to +7 days |
+
+**Index:** `locationGeo: "2dsphere"`
+
+---
+
+### Collection: `offers`
+
+Tracks each donor's email-based response to a donation request:
+
+| Field | Type | Notes |
+|---|---|---|
+| `donorUserId` | ObjectId → User | |
+| `requestId` | ObjectId → Request | Required |
+| `token` | String | Unique secure token for email links |
+| `response` | Enum | `yes/no/null` |
+| `status` | Enum | `pending/accepted/declined` |
+| `followUpAt` | Date | When to send follow-up |
+| `coinsAwarded` | Boolean | Prevent double rewarding |
+
+---
+
+### Collection: `notifications`
+`{userId, title, body, meta, createdAt}`
+
+### Collection: `chatSessions`
+`{userId, messages:[{role, content}], createdAt}`
+
+### Collection: `gamifications`
+`{userId, coins, badges, level}`
+
+### Collection: `rewardlogs`
+`{userId, action, coins, description, createdAt}`
+
+### Collection: `redemptions`
+`{userId, optionId, coinsSpent, status, createdAt}`
+
+### Collection: `redemptionoptions`
+`{title, description, coinsRequired, available}`
+
+### Collection: `pushsubscriptions`
+`{userId, subscription (endpoint, keys), createdAt}`
+
+---
+
+## 7. Blood Donor Matching Logic
+
+### Geo-Based Nearby Search
+`GET /api/donors/nearby?lat=17.4&lng=78.4&maxDistance=20000&limit=6`
+
+```javascript
+User.aggregate([
+  { $geoNear: {
+      near: { type: "Point", coordinates: [lng, lat] },
+      distanceField: "dist.calculated",
+      query: { available: true },        // ← filter 1: must be available
+      spherical: true,
+      maxDistance: 20000                 // ← filter 2: within 20km (default)
+  }},
+  { $limit: 6 },                        // ← limit results
+  { $project: { name, email, blood, locationGeo, heroCoins } }
+])
+```
+
+- Results sorted **by distance (nearest first)** automatically by `$geoNear`.
+- If no GPS coordinates provided, fallback: `User.find({ available: true })`.
+
+### Targeted Notification Matching (in `notifyController`)
+When a blood request is created:
+1. Filter donors by **matching blood group** (plus compatible groups)
+2. Filter by **`available: true`**
+3. Optionally filter by **distance to hospital**
+4. Check **`lastDonation` cooldown** (donors must wait 90 days between donations)
+5. Sort by `reliabilityScore` descending (most reliable first)
+6. Send personalised email offers to top N donors
+
+### Blood Group Compatibility Map
+```
+A+ → can receive from: A+, A-, O+, O-
+O- → universal donor, can donate to all
+AB+ → universal recipient
+```
+The system maps each requested blood group to a list of compatible donor groups.
+
+---
+
+## 8. Notification System
+
+### Email Notifications (SendGrid)
+- **Targeted**: When request created → `notifyController` finds best-matching donors by blood group + location + availability → sends individual personalised emails.
+- **Offer emails**: Include secure YES/NO links with a unique `token` → donor clicks → `GET /api/notify/offer/respond?token=...&resp=yes` → `Offer.status` updated → donor assigned.
+- **Follow-up**: After 24 hours, if donation unconfirmed, sends reminder email.
+- **Watcher re-engagement**: If request stays open >6 hours, watchers (donors who wanted to donate but were in cooldown) are notified.
+- **Reward**: On donation confirmation, `tplRewardEarned` email sent.
+
+### Difference: Targeted vs Broadcast
+| | Targeted | Broadcast |
+|---|---|---|
+| Recipients | Blood-group-matched, nearby, available donors | All registered donors |
+| Personalisation | Donor's name, request details, YES/NO links | Generic alert message |
+| Use case | New blood request → find best donors | Critical shortage announcements |
+| Endpoint | `/api/notify/targeted` | `/api/notify/broadcast` |
+
+### Push Notifications (Web Push)
+- Donors subscribe from browser → `PushSubscription` saved to DB.
+- Backend uses `web-push` library with VAPID keys to push browser notifications even when app is closed.
+- Firebase Admin SDK used for additional FCM support.
+
+### Scheduler-Based (Background)
+- **Offer follow-up**: Every 5 min, checks `Offer` docs with `followUpAt < now`.
+- **Timeout handling**: Primary donor not arrived in 2h → promotes backup and notifies.
+- **Watcher check**: Open request >6h → email watchers.
+
+---
+
+## 9. Error Handling
+
+### OTP Failures
+| Scenario | Server Response |
+|---|---|
+| Wrong OTP | `400 Invalid OTP`, `otpAttempts++` |
+| Expired OTP | `400 OTP expired. Please request a new one.` |
+| >5 attempts | `403 Too many attempts` |
+| Resend too soon | `429 Please wait 60 seconds` |
+
+### Email Failures
+- `sendMail()` returns `{ ok: false, error: "..." }` — it **never throws** to the caller.
+- Email sending is non-blocking (`.then()/.catch()`) — registration responds `201` immediately regardless.
+- Console error logged: `"Failed to send OTP email:"`.
+- Operator must monitor SendGrid dashboard for bounces/deferrals.
+- `SENDGRID_API_KEY` missing → `console.error` + skip sending (system degraded but not crashed).
+
+### Request Timeout (Scheduler)
+- If primary donor assigned but not arrived in **2 hours**: scheduler promotes next backup automatically.
+- If no backup: request reverted to `open` status.
+- Failed primary notified by email.
+
+### Edge Cases Handled
+- Re-registration of unverified email → allowed, OTP refreshed.
+- Forgot password for non-existent email → generic "if registered, OTP sent" (prevents user enumeration).
+- Payload too large → `413` error with helpful message.
+- DB not connected → scheduler skips silently (`readyState !== 1`).
+- CORS violation → `Error: Not allowed by CORS`.
+- Old requests (>7 days) → auto-deleted by scheduler.
+
+---
+
+## 10. Security
+
+### Authentication
+- **JWT (JSON Web Tokens)**: issued on login/OTP-verify, expires in **7 days**.
+- Token stored in `localStorage` on frontend, sent as `Authorization: Bearer <token>`.
+- `authMiddleware.mjs` verifies token on every protected route.
+
+### Password Security
+- `bcrypt.hash(password, 10)` — 10 salt rounds ≈ 100ms, resistant to brute-force.
+- Passwords **never returned** in any API response.
+
+### OTP Security
+- OTP hash stored with bcrypt (not SHA or MD5).
+- 10-minute expiry + 5-attempt lockout + 60s resend cooldown.
+- Cleared from DB after successful use.
+
+### Input Validation
+- Required fields checked (`if (!email || !password)`).
+- Password minimum length (6 chars) enforced on reset.
+- `gender` field uses `enum` constraint in Mongoose schema.
+- `urgency` field limited to `enum: ["low","normal","high","critical"]`.
+- `status` field limited to predefined enum values.
+
+### Data Protection
+- Profile photos stored as **base64 strings** in DB (no external file server needed).
+- Phone numbers and emails only exposed to matched donors (not public).
+- Geolocation stored but not exposed beyond distance in search results.
+- CORS: only whitelisted frontend origins allowed.
+
+### Request Payload Limits
+- Express JSON limit: `50MB` (configurable via `EXPRESS_JSON_LIMIT` env var) to support base64 image uploads.
+
+---
+
+## 11. Tech Stack & Tools
+
+### Backend
+| Library | Version | Purpose |
+|---|---|---|
+| `express` | ^4.18.2 | HTTP server & routing |
+| `mongoose` | ^7.0.0 | MongoDB ODM |
+| `bcrypt` | ^6.0.0 | Password & OTP hashing |
+| `jsonwebtoken` | ^9.0.3 | JWT authentication |
+| `@sendgrid/mail` | ^8.1.6 | Email delivery |
+| `@google/generative-ai` | ^0.24.1 | Google Gemini AI (MediBot) |
+| `groq-sdk` | ^0.37.0 | Groq LLM API (MediBot) |
+| `firebase-admin` | ^13.6.0 | Push notifications (FCM) |
+| `web-push` | ^3.6.7 | Browser push notifications |
+| `pdfkit` | ^0.17.2 | Donation certificate PDFs |
+| `crypto` | built-in | Secure OTP generation |
+| `cors` | ^2.8.5 | Cross-Origin Resource Sharing |
+| `dotenv` | ^16.0.0 | Environment variable loading |
+| `nodemon` | dev | Auto-restart in development |
+
+### Frontend
+| Library | Version | Purpose |
+|---|---|---|
+| `react` | ^19.2.0 | UI framework |
+| `react-router-dom` | ^7.9.6 | Client-side routing |
+| `axios` | ^1.13.2 | HTTP client |
+| `leaflet` / `react-leaflet` | ^1.9 / ^5.0 | Interactive maps |
+| `chart.js` / `react-chartjs-2` | ^4.5 / ^5.3 | Analytics charts |
+| `framer-motion` | ^12.23 | UI animations |
+| `i18next` / `react-i18next` | ^25 / ^16 | Internationalisation |
+| `@mui/material` | ^7.3.7 | Material UI components |
+| `firebase` | ^12.6.0 | Frontend Firebase SDK |
+| `sweetalert2` | ^11.26.3 | Styled popups/alerts |
+| `lottie-react` | ^2.4.1 | Lottie animations |
+| `socket.io-client` | ^4.8.1 | Real-time socket connection |
+| `react-markdown` | ^10.1.0 | Render MediBot markdown |
+
+### AI/ML (Python)
+- Location: `backend/ai/` 
+- `main.py` + `ml_core/` directory
+- Python `venv` with `requirements.txt`
+- Models: **Donor Readiness Score**, **Blood Shortage Risk**, **7-Day Demand Simulation**
+- Called as subprocess from Node.js backend
+
+### Hosting
+| Component | Platform |
+|---|---|
+| Frontend | **Netlify** (auto-deploy from Git) |
+| Backend | **Render** (free tier, Node.js web service) |
+| Database | **MongoDB Atlas** (free M0 cluster) |
+| Email | **SendGrid** (free 100 emails/day) |
+
+---
+
+## 12. End-to-End Flow
+
+### Complete User Journey: Registration → Donation
+
+```
+STEP 1: Registration
+─────────────────────
+User fills Register.js form (name, email, password)
+→ POST /api/auth/register
+→ Server: password bcrypt-hashed, OTP generated (crypto.randomInt)
+→ OTP bcrypt-hashed, stored in User document with 10-min expiry
+→ HTTP 201 sent immediately (non-blocking)
+→ Background: sendMail() → SendGrid API → email with OTP to user
+
+STEP 2: OTP Verification
+─────────────────────────
+User sees VerifyOtp.js page (email pre-filled from query param)
+→ User enters 6-digit OTP
+→ POST /api/auth/verify-otp { email, otp }
+→ Server: check expiry, check attempts < 5, bcrypt.compare(otp, user.otp)
+→ Match: user.isVerified = true, OTP fields cleared, JWT issued (7d)
+→ Token stored in localStorage → redirect to /dashboard
+
+STEP 3: Profile Setup
+──────────────────────
+User goes to Profile.js → fills blood group, location, age, phone
+→ PUT /api/user/update (JWT in headers)
+→ authMiddleware validates JWT → attaches req.user
+→ User document updated in MongoDB (including locationGeo for geo-queries)
+
+STEP 4: Donor Search
+─────────────────────
+User opens Donate.js → browser requests geolocation
+→ GET /api/donors/nearby?lat=...&lng=...&maxDistance=20000
+→ MongoDB $geoNear aggregation returns nearest available donors
+→ Map (Leaflet) shows donor pins
+
+STEP 5: Blood Request Created (by another user)
+────────────────────────────────────────────────
+Requester submits Request.js form (bloodGroup, hospital, urgency)
+→ POST /api/requests/create (JWT required)
+→ Request saved in MongoDB with GeoJSON coordinates
+→ notifyController fires → queries User collection:
+   • blood group match (or compatible)
+   • available: true
+   • within distance radius
+   • reliabilityScore sorted desc
+→ sendMail() to each matched donor → personalised HTML email with YES/NO links
+
+STEP 6: Donor Responds to Email
+─────────────────────────────────
+Donor sees email → clicks "YES — I WILL DONATE"
+→ GET /api/notify/offer/respond?token=<secure_token>&resp=yes
+→ Server: finds Offer by token, updates response=yes, status=accepted
+→ Donor assigned as primary in Request document
+→ Email to requester: "Donor found! Here are their details"
+→ Email to donor: "You're the primary donor! Navigate to hospital"
+
+STEP 7: Donation in Progress
+──────────────────────────────
+Scheduler (every 5 min): checks if primary donor arrived within 2h
+→ If not arrived: promotes backup donor, notifies failed primary
+→ If arrived: POST /api/requests/verify-arrival/:id
+
+STEP 8: Donation Completed
+───────────────────────────
+POST /api/requests/complete/:id
+→ Request status → "fulfilled"
+→ User.donationsCount++, heroCoins += 50, leaderboardPoints++
+→ reliabilityScore stays high
+→ tplRewardEarned email: "You earned 50 Hero Coins!"
+→ tplRequesterReward email: "Your request was fulfilled!"
+→ Gamification page updated with new badges/coins
+
+STEP 9: Follow-up
+──────────────────
+server.mjs background processor: after 24h, checks unconfirmed Offers
+→ Sends reminder email: "Are you still able to donate?"
+→ Requester receives follow-up: "Did the donation happen?"
+→ Honest feedback updates donor reliability score
+```
+
+---
+
+## Quick Viva Q&A Reference
+
+**Q: How is OTP secured?**
+A: Generated using `crypto.randomInt()` (cryptographically secure), hashed with bcrypt(10) and stored in DB. Never stored in plaintext. Expires in 10 min, max 5 attempts, cleared after use.
+
+**Q: How does authentication work?**
+A: JWT-based. After login/OTP-verify, server issues a JWT (signed with `JWT_SECRET`, expires 7d). Frontend stores in localStorage, sends as `Authorization: Bearer <token>`. `authMiddleware.mjs` verifies on every protected route.
+
+**Q: How are donors matched?**
+A: MongoDB `$geoNear` aggregation with `available: true` filter, sorted by distance. Additional blood-group compatibility mapping in `notifyController`.
+
+**Q: How does the email flow work?**
+A: `emailNotifier.mjs` uses `@sendgrid/mail` SDK. `sendMail()` is called asynchronously (non-blocking) — frontend gets response immediately while email sends in background.
+
+**Q: What happens if a donor doesn't show up?**
+A: `scheduler.mjs` runs every 5 minutes. If primary donor's `acceptedAt` was >2 hours ago and `arrived=false`, backup donor is promoted to primary, failed primary gets notification email, request status updated.
+
+**Q: Where is data stored?**
+A: MongoDB Atlas (cloud). All collections in one database. Mongoose ODM (Object Document Mapper) provides schema validation and model methods.
+
+**Q: What is the Watcher system?**
+A: Donors in post-donation cooldown (90-day wait period) can "watch" a request. If request stays `open` for 6+ hours, scheduler emails all watchers encouraging them to reconsider donating.
