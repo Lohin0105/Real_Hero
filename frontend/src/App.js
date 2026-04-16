@@ -24,6 +24,7 @@ import Analytics from "./pages/Analytics";
 import VerifyOtp from "./pages/VerifyOtp";
 import LanguageSettings from "./pages/LanguageSettings";
 import AboutUs from "./pages/AboutUs";
+import HelpQueries from "./pages/HelpQueries";
 import { authUtils } from "./utils/auth";
 
 const theme = createTheme({
@@ -91,6 +92,7 @@ function App() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/language" element={<LanguageSettings />} />
           <Route path="/about" element={<AboutUs />} />
+          <Route path="/help" element={<HelpQueries />} />
 
         </Routes>
       </BrowserRouter>

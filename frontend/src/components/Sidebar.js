@@ -130,10 +130,10 @@ export default function Sidebar({ onClose }) {
                 Support
             </div>
             <NavItem
-                active={false}
+                active={active === "/help"}
                 label="Help & Queries"
                 icon="✉️"
-                onClick={() => window.location.href = "mailto:lohinvemulapati@gmail.com?subject=Real-Hero%20Query"}
+                onClick={() => go("/help")}
             />
 
             {/* Bottom spacer */}

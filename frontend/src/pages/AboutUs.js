@@ -127,7 +127,7 @@ export default function AboutUs() {
 
       {/* Back Navigation Header */}
       <div className="back-nav">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => navigate("/")}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => navigate(-1)}>
           <button style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 20, marginRight: 10 }}>←</button>
           <BloodDrop size={24} />
           <span style={{ color: "#ff2b2b", fontSize: 20, fontWeight: 800 }}>Real<span style={{ color: "#fff" }}>-Hero</span></span>
