@@ -51,25 +51,11 @@ export const register = async (req, res) => {
             await User.create(userData);
         }
 
-        // ✅ Respond to the client IMMEDIATELY — don't wait for email
-        // This prevents frontend timeout on Render free tier where first SMTP
-        // connection can take 30-90 seconds
-        res.status(201).json({ ok: true, message: "OTP sent to email. Please verify." });
-
-        // Send OTP email in the BACKGROUND (non-blocking)
-        const lang = existingUser?.preferredLanguage || 'en';
-        const subject = getTranslation(lang, 'authSubjectVerify');
-        const bodyTitle = getTranslation(lang, 'authBodyVerify');
-        const greeting = getTranslation(lang, 'authGreeting');
-        const otpMsg = getTranslation(lang, 'authOtpMessage');
-        const otpExpiry = getTranslation(lang, 'authOtpExpiry');
-        const ignoreMsg = getTranslation(lang, 'authIgnore');
-        const footer = getTranslation(lang, 'authFooter');
-
-        sendMail({
-            to: email,
-            subject: "Your Real-Hero Verification Code",
-            html: `<!DOCTYPE html>
+        try {
+            const emailRes = await sendMail({
+                to: email,
+                subject: "Your Real-Hero Verification Code",
+                html: `<!DOCTYPE html>
 <html><body style="font-family:Arial,sans-serif;font-size:15px;color:#222;background:#fff;margin:0;padding:0">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table width="480" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;border-radius:8px;background:#fff">
@@ -87,16 +73,20 @@ export const register = async (req, res) => {
 </table>
 </td></tr></table>
 </body></html>`,
-            text: `Your Real-Hero verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not create an account, ignore this email.`
-        }).then(emailRes => {
+                text: `Your Real-Hero verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not create an account, ignore this email.`
+            });
+
             if (!emailRes.ok) {
                 console.error("Failed to send OTP email:", emailRes.error);
             } else {
                 console.log("OTP email sent to:", email);
             }
-        }).catch(err => {
+        } catch (err) {
             console.error("OTP email error:", err);
-        });
+        }
+
+        // ✅ Respond to the client AFTER email gets queued
+        res.status(201).json({ ok: true, message: "OTP sent to email. Please verify." });
 
     } catch (error) {
         console.error("Registration error:", error);
@@ -278,14 +268,11 @@ export const forgotPasswordOtp = async (req, res) => {
         user.lastOtpSent = new Date();
         await user.save();
 
-        // Respond immediately so the UI isn't blocked
-        res.json({ ok: true, message: "If that email is registered, an OTP has been sent." });
-
-        // Send OTP email in the background
-        sendMail({
-            to: email,
-            subject: "Real-Hero Password Reset Code",
-            html: `<!DOCTYPE html>
+        try {
+            const r = await sendMail({
+                to: email,
+                subject: "Real-Hero Password Reset Code",
+                html: `<!DOCTYPE html>
 <html><body style="font-family:Arial,sans-serif;font-size:15px;color:#222;background:#fff;margin:0;padding:0">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table width="480" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;border-radius:8px;background:#fff">
@@ -302,11 +289,16 @@ export const forgotPasswordOtp = async (req, res) => {
 </table>
 </td></tr></table>
 </body></html>`,
-            text: `Your Real-Hero password reset code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not request this, ignore this email.`
-        }).then(r => {
+                text: `Your Real-Hero password reset code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not request this, ignore this email.`
+            });
             if (!r.ok) console.error("Failed to send password reset OTP:", r.error);
             else console.log("Password reset OTP sent to:", email);
-        }).catch(err => console.error("Password reset OTP email error:", err));
+        } catch (err) {
+            console.error("Password reset OTP email error:", err);
+        }
+
+        // Respond after email is queued
+        res.json({ ok: true, message: "If that email is registered, an OTP has been sent." });
 
     } catch (error) {
         console.error("forgotPasswordOtp error:", error);
