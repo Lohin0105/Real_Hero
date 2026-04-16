@@ -25,8 +25,6 @@ import VerifyOtp from "./pages/VerifyOtp";
 import LanguageSettings from "./pages/LanguageSettings";
 import AboutUs from "./pages/AboutUs";
 import HelpQueries from "./pages/HelpQueries";
-import DonorTracker from "./pages/DonorTracker";
-import ReceiverTracker from "./pages/ReceiverTracker";
 import { authUtils } from "./utils/auth";
 
 const theme = createTheme({
@@ -95,8 +93,6 @@ function App() {
           <Route path="/language" element={<LanguageSettings />} />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/help" element={<HelpQueries />} />
-          <Route path="/track-mission/:id" element={<DonorTracker />} />
-          <Route path="/live-tracking/:id" element={<ReceiverTracker />} />
 
         </Routes>
       </BrowserRouter>
