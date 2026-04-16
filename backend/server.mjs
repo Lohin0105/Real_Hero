@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import http from "http";
+import { Server } from "socket.io";
 import mongoose from "mongoose";
 import connectDB from "./config/db.mjs";
 import userRoutes from "./routes/userRoutes.mjs";
@@ -78,14 +80,41 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || "Server error" });
 });
 
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*", // allow frontends to connect easily
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on("connection", (socket) => {
+  socket.on("join_tracking_room", (roomId) => {
+    socket.join(roomId);
+    console.log(`Socket joined room: ${roomId}`);
+  });
+
+  socket.on("donor_location_update", (data) => {
+    // Expected data: { requestId, lat, lng, timestamp }
+    if (data && data.requestId) {
+      // Broadcast to everybody else in that room (which should be the receiver viewing the map)
+      socket.to(`tracking_${data.requestId}`).emit("location_update", data);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    // Socket automatically leaves rooms
+  });
+});
+
 const startServer = (port) => {
-  const server = app.listen(port, () => {
+  httpServer.listen(port, () => {
     console.log(`Server running on port ${port}`);
     console.log(`CORS origins: ${origins.join(",")}`);
     initScheduler();
   });
 
-  server.on('error', (err) => {
+  httpServer.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`Port ${port} is busy, trying ${port + 1}...`);
       startServer(port + 1);

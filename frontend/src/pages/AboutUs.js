@@ -37,7 +37,7 @@ export default function AboutUs() {
       role: "Developer",
       degrees: "B.Tech",
       desc: "Contributed to front-end components, user interface implementation, and platform testing.",
-      image: "https://ui-avatars.com/api/?name=G+Veera+Saradhi&background=random&color=fff&size=200" // Placeholder
+      image: "https://res.cloudinary.com/dk1kmlvla/image/upload/v1776325632/saradhi_qw0gva.jpg" // Placeholder
     }
   ];
 
@@ -149,22 +149,22 @@ export default function AboutUs() {
           {teamMembers.map((member, index) => (
             <motion.div key={member.name} variants={fadeUp}>
               <div className="team-card">
-                
+
                 <div className="img-container">
                   <img src={member.image} alt={member.name} className="img-inner" />
                 </div>
-                
+
                 <h3 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px" }}>
                   {member.name}
                 </h3>
-                
+
                 <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, fontWeight: 600, marginBottom: 8, letterSpacing: 0.5 }}>
                   {member.degrees}
                 </div>
 
-                <div style={{ 
-                  background: "rgba(255,43,43,0.1)", color: "#ff4c4c", 
-                  padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 700, 
+                <div style={{
+                  background: "rgba(255,43,43,0.1)", color: "#ff4c4c",
+                  padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 700,
                   textTransform: "uppercase", letterSpacing: 1, marginBottom: 16,
                   display: "inline-block"
                 }}>
@@ -180,8 +180,8 @@ export default function AboutUs() {
           ))}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once:true }} transition={{ delay: 0.6 }} style={{ textAlign: "center", marginTop: 70 }}>
-           <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 14, letterSpacing: 1 }}>Built with passion and a commitment to saving lives.</p>
+        <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} transition={{ delay: 0.6 }} style={{ textAlign: "center", marginTop: 70 }}>
+          <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 14, letterSpacing: 1 }}>Built with passion and a commitment to saving lives.</p>
         </motion.div>
       </div>
 

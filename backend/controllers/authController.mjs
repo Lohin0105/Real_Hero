@@ -29,6 +29,11 @@ export const register = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const otp = generateOTP();
+        
+        console.log(`\n=========================================\n`);
+        console.log(`🔑 DEV ALERT - NEW REGISTRATION OTP for ${email}: ${otp}`);
+        console.log(`=========================================\n`);
+
         const hashedOtp = await bcrypt.hash(otp, 10);
 
         const userData = {
@@ -165,6 +170,10 @@ export const resendOtp = async (req, res) => {
         }
 
         const otp = generateOTP();
+        console.log(`\n=========================================\n`);
+        console.log(`🔑 DEV ALERT - RESEND OTP for ${email}: ${otp}`);
+        console.log(`=========================================\n`);
+
         const hashedOtp = await bcrypt.hash(otp, 10);
 
         user.otp = hashedOtp;

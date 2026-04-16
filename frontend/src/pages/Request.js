@@ -283,12 +283,25 @@ export default function Request() {
           // geolocation failed — attempt best-effort geocode from hospital text
           if (attachLocation && form.hospital) {
             try {
-              const searchUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(form.hospital)}&limit=1`;
+              const apiKey = process.env.REACT_APP_GEOAPIFY_API_KEY;
+              let searchUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(form.hospital)}&limit=1`;
+              
+              if (apiKey) {
+                 searchUrl = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(form.hospital)}&limit=1&apiKey=${apiKey}`;
+              }
+
               const r2 = await fetch(searchUrl, { method: 'GET' });
               if (r2.ok) {
-                const hits = await r2.json();
-                if (Array.isArray(hits) && hits.length > 0) {
-                  const first = hits[0];
+                const data = await r2.json();
+                if (apiKey && data.features && data.features.length > 0) {
+                   const latN = parseFloat(data.features[0].properties.lat);
+                   const lonN = parseFloat(data.features[0].properties.lon);
+                   if (!Number.isNaN(latN) && !Number.isNaN(lonN)) {
+                     finalCoords = { lat: latN, lng: lonN };
+                     setCoords(finalCoords);
+                   }
+                } else if (!apiKey && Array.isArray(data) && data.length > 0) {
+                  const first = data[0];
                   const latN = parseFloat(first.lat);
                   const lonN = parseFloat(first.lon);
                   if (!Number.isNaN(latN) && !Number.isNaN(lonN)) {

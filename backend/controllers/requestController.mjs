@@ -1,4 +1,4 @@
-﻿import Request from "../models/Request.mjs";
+import Request from "../models/Request.mjs";
 import Notification from "../models/Notification.mjs";
 import User from "../models/User.mjs";
 import DonorResponse from "../models/DonorResponse.mjs";
@@ -59,15 +59,18 @@ export const createRequest = async (req, res) => {
       // Use Nominatim (OpenStreetMap) as a simple free geocoder. Keep this non-blocking
       // and fail gracefully if the geocode call fails or returns no result.
       try {
-        const q = encodeURIComponent(hospital);
-        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${q}&limit=1`;
-        // prefer global fetch if available (Node 18+), otherwise try to import fetch from undici
+        const apiKey = process.env.GEOAPIFY_API_KEY || process.env.REACT_APP_GEOAPIFY_API_KEY; // Attempt either
+        let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(hospital)}&limit=1`;
+        
+        if (apiKey) {
+           url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(hospital)}&limit=1&apiKey=${apiKey}`;
+        }
+
         const fetchFn = (typeof fetch === 'function') ? fetch : null;
         let geocodeRes = null;
         if (fetchFn) {
           geocodeRes = await fetchFn(url, { headers: { 'User-Agent': 'Real-Hero-Backend' } });
         } else {
-          // dynamic import of undici as fallback if installed
           try {
             const { fetch: undiciFetch } = await import('undici');
             geocodeRes = await undiciFetch(url, { headers: { 'User-Agent': 'Real-Hero-Backend' } });
@@ -75,10 +78,18 @@ export const createRequest = async (req, res) => {
             geocodeRes = null;
           }
         }
+
         if (geocodeRes && geocodeRes.ok) {
-          const hits = await geocodeRes.json().catch(() => null);
-          if (Array.isArray(hits) && hits.length > 0) {
-            const first = hits[0];
+          const data = await geocodeRes.json().catch(() => null);
+          if (apiKey && data && data.features && data.features.length > 0) {
+            const latN = parseFloat(data.features[0].properties.lat);
+            const lonN = parseFloat(data.features[0].properties.lon);
+            if (!Number.isNaN(latN) && !Number.isNaN(lonN)) {
+              payload.location = { lat: latN, lng: lonN };
+              payload.locationGeo = { type: 'Point', coordinates: [lonN, latN] };
+            }
+          } else if (!apiKey && Array.isArray(data) && data.length > 0) {
+            const first = data[0];
             const latN = parseFloat(first.lat);
             const lonN = parseFloat(first.lon);
             if (!Number.isNaN(latN) && !Number.isNaN(lonN)) {

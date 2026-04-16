@@ -332,12 +332,14 @@ export default function Donations() {
 
                                     {/* Action buttons */}
                                     <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+                                        {/* Removed Start Mission Button */}
                                         <Button variant="contained" startIcon={<CheckCircleIcon />}
                                             onClick={() => setCompleteOpen(true)}
                                             sx={{
                                                 borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: "0.88rem",
                                                 background: "linear-gradient(135deg,#2e7d32,#1b5e20)",
                                                 boxShadow: "0 4px 20px rgba(46,125,50,0.35)",
+                                                marginLeft: "auto",
                                                 "&:hover": { background: "linear-gradient(135deg,#388e3c,#2e7d32)", boxShadow: "0 6px 28px rgba(46,125,50,0.5)" }
                                             }}>
                                             Mission Accomplished ✓

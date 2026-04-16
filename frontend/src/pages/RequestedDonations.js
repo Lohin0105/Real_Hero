@@ -279,7 +279,8 @@ export default function RequestedDonations() {
                                                             </Stack>
                                                         </Box>
                                                     </Box>
-                                                    <Box sx={{ display: "flex", gap: 1.5, flexShrink: 0 }}>
+                                                    <Box sx={{ display: "flex", gap: 1.5, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                                        {/* Removed Track Donor Button */}
                                                         <Button variant="outlined" size="small" startIcon={<InfoIcon />}
                                                             onClick={() => { setSelectedReq(req); setDetailOpen(true); }}
                                                             sx={{ color: "rgba(255,255,255,0.65)", borderColor: "rgba(255,255,255,0.12)", borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: "0.78rem", "&:hover": { borderColor: "rgba(255,255,255,0.4)", color: "#fff", bgcolor: "rgba(255,255,255,0.04)" } }}>

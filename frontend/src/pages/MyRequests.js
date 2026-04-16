@@ -199,12 +199,14 @@ export default function MyRequests() {
                           <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 8px" }}>
                             {formatDate(req.createdAt)}
                           </p>
-                          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>
+                          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 12 }}>
                             Urgency: <span style={{ 
                               color: req.urgency === 'high' || req.urgency === 'critical' ? '#ef4444' : '#fbbf24',
                               fontWeight: 600, textTransform: 'capitalize' 
                             }}>{req.urgency}</span>
                           </div>
+                          
+                          {/* Removed Track Donor Button */}
                         </div>
 
                       </div>

@@ -614,16 +614,20 @@ export default function Donate() {
     }
   }
 
-  function openConfirmAndProceed(request, action) {
+  async function openConfirmAndProceed(request, action) {
     // Shared execution logic wrapper to run after API calls
     const executeContactAction = async (req, act) => {
       if (act === 'call') {
         window.location.href = `tel:${req.phone || ''}`;
+        return true;
       } else if (act === 'navigate') {
         await openMapForRequest(req);
+        return true;
       } else if (act === 'whatsapp') {
         await openWhatsAppWithMessage(req);
+        return true;
       }
+      return true;
     };
 
     // 6-Hour Watchlist / Cooldown check
@@ -685,7 +689,9 @@ export default function Donate() {
             setPendingAction(action);
 
             // Execute the contact action first (to avoid popup blocker due to async delay)
-            await executeContactAction(request, action);
+            // Execute the contact action first (to avoid popup blocker due to async delay)
+            const proceeded = await executeContactAction(request, action);
+            if (!proceeded) return;
 
             fetch(`${API_BASE}/api/requests/interest/${request._id}`, {
               method: 'POST',
@@ -714,7 +720,9 @@ export default function Donate() {
     setPendingAction(action);
 
     // Execute the contact action first (to avoid popup blocker due to async delay)
-    executeContactAction(request, action);
+    // Wait for the action (e.g. Swal) to complete. If they cancel, don't register interest.
+    const proceeded = await executeContactAction(request, action);
+    if (!proceeded) return;
 
     fetch(`${API_BASE}/api/requests/interest/${request._id}`, {
       method: 'POST',
