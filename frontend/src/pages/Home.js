@@ -319,6 +319,7 @@ export default function Home() {
                     ].map(item => (
                         <button key={item.id} className="mobile-menu-link" onClick={() => scrollTo(item.id)}>{item.label}</button>
                     ))}
+                    <button className="mobile-menu-link" onClick={() => { setMenuOpen(false); navigate("/about"); }}>Meet the Team</button>
                     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 220 }}>
                         <button className="btn-secondary" style={{ width: "100%", textAlign: "center" }} onClick={() => { setMenuOpen(false); navigate("/login"); }}>Login</button>
                         <button className="btn-primary" style={{ width: "100%", textAlign: "center" }} onClick={() => { setMenuOpen(false); navigate("/register"); }}>Join Free 🩸</button>
@@ -357,6 +358,7 @@ export default function Home() {
                     ].map(item => (
                         <button key={item.id} className="nav-link" onClick={() => scrollTo(item.id)}>{item.label}</button>
                     ))}
+                    <button className="nav-link" onClick={() => navigate("/about")}>Meet the Team</button>
                 </div>
 
                 {/* Desktop auth buttons */}
@@ -685,6 +687,7 @@ export default function Home() {
                     <button className="nav-link" style={{ fontSize: 13 }} onClick={() => navigate("/register")}>Register</button>
                     <button className="nav-link" style={{ fontSize: 13 }} onClick={() => scrollTo("features")}>Features</button>
                     <button className="nav-link" style={{ fontSize: 13 }} onClick={() => scrollTo("how-it-works")}>How It Works</button>
+                    <button className="nav-link" style={{ fontSize: 13 }} onClick={() => navigate("/about")}>Meet the Team</button>
                 </div>
                 <p style={{ color: "rgba(255,255,255,0.14)", fontSize: 12, margin: 0 }}>
                     © 2025 Real-Hero. All rights reserved. Built with ❤️ for humanity.

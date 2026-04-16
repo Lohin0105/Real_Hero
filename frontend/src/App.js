@@ -23,6 +23,7 @@ import MediBotPage from "./pages/MediBotPage";
 import Analytics from "./pages/Analytics";
 import VerifyOtp from "./pages/VerifyOtp";
 import LanguageSettings from "./pages/LanguageSettings";
+import AboutUs from "./pages/AboutUs";
 import { authUtils } from "./utils/auth";
 
 const theme = createTheme({
@@ -89,6 +90,7 @@ function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/language" element={<LanguageSettings />} />
+          <Route path="/about" element={<AboutUs />} />
 
         </Routes>
       </BrowserRouter>
